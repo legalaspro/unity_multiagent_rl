@@ -1,5 +1,6 @@
 .vscode/
 app
+figures/
 runs
 
 # Byte-compiled / optimized / DLL files
