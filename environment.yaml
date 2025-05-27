@@ -1,0 +1,21 @@
+name: unity_multiagent_rl
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - numpy>=1.24.0
+  - matplotlib>=3.7.0
+  - pandas>=2.0.0
+  - pyyaml>=6.0
+  - grpcio>=1.62.0
+  - python-dotenv>=1.0.0
+  - pip:
+      - torch==2.2.2
+      - tensorboard>=2.12.0
+      - wandb>=0.16.0
+      - gymnasium>=1.0.0
+      - imageio==2.35.1
+      - "imageio[ffmpeg]"
+      - -e ./python

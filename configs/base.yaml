@@ -1,0 +1,11 @@
+# Parameters that are truly shared by every algorithm
+env_id: "Tennis"
+device: "cuda"
+max_steps: 100000
+seed: 1
+
+n_step: 1
+zerosum: false
+
+use_max_grad_norm: true
+max_grad_norm: 10.0

@@ -1,0 +1,25 @@
+algo: "mappo"
+
+actor_lr: 3.0e-4
+critic_lr: 1.0e-3
+entropy_coef: 0.01
+gamma: 0.99
+gae_lambda: 0.95
+clip_param: 0.2
+ppo_epoch: 5
+num_mini_batch: 32
+use_clipped_value_loss: True
+
+hidden_sizes: [64, 64]
+state_dependent_std: False
+use_max_grad_norm: True
+max_grad_norm: 10.
+use_reward_norm: True
+
+shared_policy: True
+shared_critic: True
+
+# PPO epochs per update
+n_steps: 2048
+
+use_role_id: False

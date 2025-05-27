@@ -1,0 +1,37 @@
+algo: "masac"
+env_id: "Soccer"
+
+actor_lr: 3.0e-4
+critic_lr: 3.0e-4
+alpha_lr: 3.0e-4
+gamma: 0.99
+tau: 0.01
+
+autotune_alpha: true
+alpha_init: 0.2
+gumbel_tau: 0.75 # Temperature for Gumbel-Softmax
+gumbel_tau_min: 0.25
+gumbel_anneal_steps: 200000
+n_step: 15
+
+hidden_sizes: [128, 128]
+
+update_every: 50
+gradient_steps: 25
+learning_starts: 10000
+
+batch_size: 512
+buffer_size: 500000
+
+teams: # list of lists of agent indices  (global order)
+  - [0, 2] # team 0  → agent-0 of brain-0  +  agent-0 of brain-1
+  - [1, 3] # team 1  → agent-1 of brain-0  +  agent-1 of brain-1
+
+# Competitive evaluation settings
+zerosum: True
+competitive_eval_episodes: 5
+max_model_snapshots: 10
+
+eval_interval: 20000
+log_interval: 2000
+max_steps: 500000
