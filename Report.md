@@ -425,10 +425,10 @@ The Soccer environment also includes Elo rating system evaluation that tracks pe
 
 ### 1. Advanced Algorithm Improvements
 
-**Hierarchical Multi-Agent RL**:
+**Model-Based Approaches**:
 
-- High-level coordinators with low-level execution policies
-- Beneficial for role-based agents like Soccer goalies/strikers
+- Learn environment dynamics for better planning
+- Reduce sample complexity in sparse reward environments
 
 **Attention Mechanisms**:
 
