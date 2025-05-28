@@ -6,7 +6,7 @@ import torch
 import os
 
 from buffers.rollout_storage import RolloutStorage
-from algo import ALGO_REGISTRY
+from algos import ALGO_REGISTRY
 from utils.reward_normalizer import StandardNormalizer
 
 from evals.unity_evaluator import UnityEvaluator

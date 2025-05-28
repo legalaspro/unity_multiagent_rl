@@ -3,7 +3,7 @@ import numpy as np
 import os
 import torch
 from buffers.replay_buffer import ReplayBuffer
-from algo import ALGO_REGISTRY
+from algos import ALGO_REGISTRY
 import gymnasium
 
 from evals.unity_evaluator import UnityEvaluator

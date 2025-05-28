@@ -6,7 +6,7 @@ from typing import List, Tuple, Any
 
 from envs.unity_env_wrapper import UnityEnvWrapper
 from evals.elo_rating import EloRatingSystem
-from algo.random import RandomPolicy
+from algos.random import RandomPolicy
 
 class CompetitiveEvaluator:
     """
