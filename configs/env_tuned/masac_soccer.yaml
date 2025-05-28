@@ -9,16 +9,18 @@ tau: 0.01
 
 autotune_alpha: true
 alpha_init: 0.2
-gumbel_tau: 0.75 # Temperature for Gumbel-Softmax
-gumbel_tau_min: 0.25
-gumbel_anneal_steps: 200000
+gumbel_tau: 1.0 # Temperature for Gumbel-Softmax
+gumbel_tau_min: 0.5
+gumbel_anneal_steps: 100000
 n_step: 15
 
 hidden_sizes: [128, 128]
+shared_critic: True
+# critic_alpha_mode: "shared" # "per_agent" (default), better for MASAC when critic is shared
 
 update_every: 50
-gradient_steps: 25
-learning_starts: 10000
+gradient_steps: 50
+learning_starts: 10000 # collect some data before starting to learn
 
 batch_size: 512
 buffer_size: 500000
@@ -32,6 +34,6 @@ zerosum: True
 competitive_eval_episodes: 5
 max_model_snapshots: 10
 
-eval_interval: 20000
+eval_interval: 10000
 log_interval: 2000
-max_steps: 500000
+max_steps: 200000
