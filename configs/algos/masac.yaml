@@ -11,6 +11,7 @@ alpha_init: 0.2
 gumbel_tau: 1.0 # Temperature for Gumbel-Softmax
 
 hidden_sizes: [64, 64]
+shared_critic: False
 
 update_every: 1
 gradient_steps: 1
