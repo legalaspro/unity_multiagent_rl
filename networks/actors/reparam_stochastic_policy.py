@@ -36,10 +36,11 @@ class ReparamStochasticPolicy(nn.Module):
         # ------- Base MLP -------
         layers: List[nn.Module] = []
         in_dim = state_size
+        # layers += [nn.LayerNorm(in_dim)]
         for hidden_dim in hidden_sizes:
             layers.append(nn.Linear(in_dim, hidden_dim))
-            layers.append(nn.LayerNorm(hidden_dim)) 
             layers.append(nn.ReLU())
+            layers.append(nn.LayerNorm(hidden_dim)) 
             in_dim = hidden_dim
         self.base = nn.Sequential(*layers)
 
