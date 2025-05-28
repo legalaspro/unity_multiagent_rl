@@ -15,7 +15,7 @@ class _MASACAgent:
     SAC Agent with Reparameterizable Actor and Twin Critic network
     """
     def __init__(self, args, state_size, action_space, idx=0, total_state_size=None, total_action_size=None,
-                  device=torch.device("cpu")):
+                  device=torch.device("cpu"), parent=None):
         """
         Initialize a SAC agent.
 
@@ -37,10 +37,12 @@ class _MASACAgent:
             total_state_size (int): Total dimension of all agents' states (for centralized critic)
             total_action_size (int): Total dimension of all agents' actions (for centralized critic)
             device (torch.device): Device to use for training
+            parent (MASAC): Parent MASAC object
         """
         self.state_size = state_size
         self.action_space = action_space
         self.idx = idx
+        self.parent = parent
         
         self.args = args
         
@@ -65,9 +67,13 @@ class _MASACAgent:
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=args.actor_lr)
 
         # Critic Networks (Local and Target) if using centralized critic
-        self.critic = TwinQNet(total_state_size, total_action_size, args.hidden_sizes, device=device)
-        self.critic_target = TwinQNet(total_state_size, total_action_size, args.hidden_sizes, device=device)
-        self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=args.critic_lr)
+        if not args.shared_critic:
+            self.critic = TwinQNet(total_state_size, total_action_size, args.hidden_sizes, device=device)
+            self.critic_target = TwinQNet(total_state_size, total_action_size, args.hidden_sizes, device=device)
+            self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=args.critic_lr)
+
+            # Initialize target networks with local network weights
+            self.hard_update(self.critic_target, self.critic)
 
         if self.autotune_alpha:
             # Target entropy is -|A|, where |A| is the action space dimensionality (SAC paper) (e.g. -float(action_size))
@@ -79,9 +85,7 @@ class _MASACAgent:
         else:
             # Fixed alpha if autotune is disabled
             self.log_alpha = torch.log(torch.tensor(self.alpha_init, device=device)).requires_grad_(False)
-
-        # Initialize target networks with local network weights
-        self.hard_update(self.critic_target, self.critic)
+       
 
     @property
     def alpha(self):
@@ -222,15 +226,20 @@ class _MASACAgent:
         states, actions, rewards, next_states, next_actions, next_log_probs,\
             dones = experiences
 
-        # Update Critic
-        critic_loss, critic_grad_norm = self.update_critic(
-            states,
-            actions,
-            rewards,
-            next_states,
-            next_actions,
-            next_log_probs,
-            dones)
+       
+        if not self.args.shared_critic:
+            # Update Critic
+            critic_loss, critic_grad_norm = self.update_critic(
+                states,
+                actions,
+                rewards,
+                next_states,
+                next_actions,
+                next_log_probs,
+                dones)
+            train_info['critic_loss'] = critic_loss
+            if self.use_max_grad_norm:
+                train_info['critic_grad_norm'] = critic_grad_norm
 
         # Update Actor
         actions_pred = []
@@ -249,11 +258,19 @@ class _MASACAgent:
             else: # Detach actions from other agents to prevent gradient flow
                 actions_pred.append(actions_i.detach())
 
-        actions_full_pred = torch.cat(actions_pred, dim=-1)
-        states_full = torch.cat(states, dim=-1)
-        # Compute actor loss using the agent's critic
-        q1, q2 = self.critic(states_full, actions_full_pred)
-        q_value = torch.min(q1, q2)
+        if not self.args.shared_critic:
+            # Concatenate actions and states for all agents
+            actions_full_pred = torch.cat(actions_pred, dim=-1)
+            states_full = torch.cat(states, dim=-1)
+            # Compute actor loss using the agent's critic
+            q1, q2 = self.critic(states_full, actions_full_pred)
+            q_value = torch.min(q1, q2)
+        else:   
+            # Compute actor loss using the shared critic
+            q1, q2 = self.parent.get_action_values(states, actions_pred, self.idx)
+            q_value = torch.min(q1, q2)
+        
+        # Compute actor loss
         actor_loss = torch.mean(self.alpha*sampled_log_probs - q_value)
 
         # Minimize the loss
@@ -278,13 +295,11 @@ class _MASACAgent:
             alpha_loss = torch.tensor(0.0)
 
 
-        train_info['critic_loss'] = critic_loss
         train_info['actor_loss'] = actor_loss.item()
         train_info['alpha_loss'] = alpha_loss.item()
         train_info['alpha'] = self.alpha.item()
         if self.use_max_grad_norm:
             train_info['actor_grad_norm'] = actor_grad_norm
-            train_info['critic_grad_norm'] = critic_grad_norm
 
         return train_info
 

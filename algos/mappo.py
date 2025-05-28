@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from algo.marl_base import MultiAgentModule
+from algos.marl_base import MultiAgentModule
 from networks.actors.stochastic_policy import StochasticPolicy
 from utils.env_tools import get_action_dim_for_critic_input
 from networks.critics.v_net import VNet

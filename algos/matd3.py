@@ -1,20 +1,21 @@
 """
-Multi-Agent Deep Deterministic Policy Gradient (MADDPG) Implementation
+Multi-Agent Twin Delayed Deep Deterministic Policy Gradient (MATD3) Implementation
 """
 import os
 import torch
 
-from algo.marl_base import MultiAgentModule
+from algos.marl_base import MultiAgentModule
 from utils.env_tools import get_action_dim_for_critic_input
-from .agent._maddpg_agent import _MADDPGAgent
+from .agent._matd3_agent import _MATD3Agent
 
-class MADDPG(MultiAgentModule):
+class MATD3(MultiAgentModule):
     """
-    Multi-Agent Deep Deterministic Policy Gradient (MADDPG) implementation
+    Multi-Agent Twin Delayed Deep Deterministic Policy Gradient (MATD3) with centralized critics.
     """
+
     def __init__(self, args, obs_spaces, action_spaces, device=torch.device("cpu")):
         """
-        Initialize a MADDPG agent.
+        Initialize a MATD3 agent.
 
         Args:
             args (argparse.Namespace): Hyperparameters
@@ -44,17 +45,20 @@ class MADDPG(MultiAgentModule):
         self.total_obs_size = sum(self.obs_sizes)
         self.total_action_size = sum(self.action_sizes)
 
+        # Total training iterations
+        self.total_iterations = 1
+
         # Create agents
         self.agents = []
         for i in range(self.num_agents):
-            agent = _MADDPGAgent(
+            agent = _MATD3Agent(
                 args,
                 self.obs_sizes[i],
                 self.action_spaces[i],
                 idx=i,
                 total_state_size=self.total_obs_size,
                 total_action_size=self.total_action_size,
-                device=device
+                device=self.device
             )
             self.agents.append(agent)
 
@@ -67,9 +71,8 @@ class MADDPG(MultiAgentModule):
             deterministic (bool): Whether to add noise for exploration
         """
         add_noise = not deterministic
-     
         # actions = [agent.act(observation, add_noise, self.exploration_noise)
-        #       for agent, observation in zip(self.agents, obs)]
+        #           for agent, observation in zip(self.agents, obs)]
         actions = []
         for i, agent in enumerate(self.agents):
             actions.append(agent.act(obs[i], add_noise, self.exploration_noise))
@@ -112,15 +115,16 @@ class MADDPG(MultiAgentModule):
         agent_train_infos = {}
 
         for agent_idx, agent in enumerate(self.agents):
-
             # Extract the agent's specific rewards and dones
             agent_rewards = rewards[agent_idx]
             agent_dones = dones[agent_idx]
 
             agent_train_infos[agent_idx] = agent.train(
                 (obs, actions, agent_rewards,
-                next_obs, next_actions, agent_dones))
+                next_obs, next_actions, agent_dones),
+                total_iterations=self.total_iterations)
 
+        self.total_iterations += 1
 
         # Update target networks for all agents
         self.update_targets()
@@ -149,6 +153,7 @@ class MADDPG(MultiAgentModule):
         """
         for target_param, source_param in zip(target.parameters(), source.parameters()):
             target_param.data.copy_(self.tau * source_param.data + (1.0 - self.tau) * target_param.data)
+
 
     def save(self, path, save_args=False):
         """
@@ -188,12 +193,13 @@ class MADDPG(MultiAgentModule):
         # Load agent models and optimizers
         for i, agent in enumerate(self.agents):
             # Load actor model
-            actor_key = f'agent_{i}_state_dict'
+            actor_key = f'actor_{i}_state_dict'
             agent.actor.load_state_dict(models_dict[actor_key])
             agent.actor_target.load_state_dict(models_dict[actor_key])
             agent.actor_optimizer.load_state_dict(models_dict[f'actor_{i}_optimizer'])
-            # Load critic model
-            critic_key = f'agent_{i}_state_dict'
+            # Load critic model (handle both old and new key formats)
+            critic_key = f'critic_{i}_state_dict' if f'critic_{i}_state_dict' in models_dict \
+                else f'critic_{i}__state_dict'
             agent.critic.load_state_dict(models_dict[critic_key])
             agent.critic_target.load_state_dict(models_dict[critic_key])
             agent.critic_optimizer.load_state_dict(models_dict[f'critic_{i}_optimizer'])
