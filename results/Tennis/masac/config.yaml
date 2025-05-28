@@ -1,0 +1,48 @@
+# MASAC Configuration for Tennis Environment
+env_id: Tennis
+device: cuda
+max_steps: 200000
+seed: 1
+
+# Gradient clipping
+use_max_grad_norm: true
+max_grad_norm: 10.0
+
+# Algorithm settings
+algorithm: masac
+algo: masac
+actor_lr: 0.0003
+critic_lr: 0.0003
+alpha_lr: 0.0003
+gamma: 0.99
+tau: 0.01
+
+# SAC specific settings
+autotune_alpha: true
+alpha_init: 0.2
+gumbel_tau: 1.0
+
+# Network architecture
+hidden_sizes: [64, 64]
+shared_critic: false
+
+# Training settings
+update_every: 1
+gradient_steps: 1
+learning_starts: 1000
+batch_size: 256
+buffer_size: 250000
+
+# Experiment settings
+run_name: test_run
+worker_id: 2
+cuda: true
+torch_threads: 1
+cuda_deterministic: true
+
+# Logging and evaluation
+log_interval: 1000
+use_wandb: false
+eval_interval: 10000
+eval_episodes: 10
+render: false

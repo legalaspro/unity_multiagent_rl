@@ -1,0 +1,66 @@
+# MASAC Soccer Configuration
+# Algorithm: Multi-Agent Soft Actor-Critic with Shared Critic
+# Environment: Soccer (Unity ML-Agents)
+
+# Environment Configuration
+env_id: Soccer
+device: cuda
+max_steps: 200000
+seed: 1
+n_step: 15
+zerosum: true
+teams: [[0, 2], [1, 3]]
+
+# Algorithm Configuration
+algo: masac
+shared_critic: true
+
+# Learning Parameters
+actor_lr: 0.0003
+critic_lr: 0.0003
+alpha_lr: 0.0003
+gamma: 0.99
+tau: 0.01
+autotune_alpha: true
+alpha_init: 0.2
+
+# Exploration and Gumbel Softmax
+exploration_noise: 0.1
+gumbel_tau: 1.0
+gumbel_tau_min: 0.5
+gumbel_anneal_steps: 100000
+
+# Network Architecture
+hidden_sizes: [128, 128]
+
+# Training Configuration
+update_every: 50
+gradient_steps: 25
+learning_starts: 10000
+batch_size: 512
+buffer_size: 500000
+
+# Gradient Clipping
+use_max_grad_norm: true
+max_grad_norm: 10.0
+
+# Evaluation Configuration
+eval_episodes: 10
+eval_interval: 10000
+competitive_eval_episodes: 5
+max_model_snapshots: 10
+
+# Logging and Monitoring
+log_interval: 2000
+use_wandb: false
+render: false
+
+# System Configuration
+worker_id: 3
+cuda: true
+torch_threads: 1
+cuda_deterministic: true
+
+# Run Configuration
+run_name: test_run
+config: configs/env_tuned/masac_soccer.yaml

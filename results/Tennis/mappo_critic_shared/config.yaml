@@ -1,0 +1,47 @@
+# MAPPO Critic Shared Configuration for Tennis Environment
+env_id: Tennis
+device: cuda
+max_steps: 500000
+seed: 1
+
+# Gradient clipping
+use_max_grad_norm: true
+max_grad_norm: 10.0
+
+# Algorithm settings
+algorithm: mappo
+algo: mappo
+actor_lr: 0.0003
+critic_lr: 0.001
+entropy_coef: 0.01
+gamma: 0.99
+gae_lambda: 0.95
+clip_param: 0.2
+ppo_epoch: 5
+num_mini_batch: 32
+use_clipped_value_loss: true
+
+# Network architecture
+hidden_sizes: [64, 64]
+state_dependent_std: false
+
+# MAPPO specific settings
+use_reward_norm: true
+shared_policy: false  # Individual policies
+shared_critic: true   # Shared critic
+n_steps: 2048
+use_role_id: false
+
+# Experiment settings
+run_name: test_run
+worker_id: 2
+cuda: true
+torch_threads: 1
+cuda_deterministic: true
+
+# Logging and evaluation
+log_interval: 1000
+use_wandb: false
+eval_interval: 10000
+eval_episodes: 10
+render: false

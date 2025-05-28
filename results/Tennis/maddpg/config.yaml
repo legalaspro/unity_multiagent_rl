@@ -1,0 +1,44 @@
+# MADDPG Configuration for Tennis Environment
+env_id: Tennis
+device: cuda
+max_steps: 200000
+seed: 1
+n_step: 1
+zerosum: false
+
+# Gradient clipping
+use_max_grad_norm: true
+max_grad_norm: 10.0
+
+# Algorithm settings
+algo: maddpg
+actor_lr: 0.001
+critic_lr: 0.001
+gamma: 0.99
+tau: 0.01
+exploration_noise: 0.1
+
+# Network architecture
+hidden_sizes: [64, 64]
+
+# Training settings
+update_every: 1
+gradient_steps: 1
+learning_starts: 1000
+batch_size: 256
+buffer_size: 250000
+
+# Experiment settings
+run_name: test_run
+config: null
+worker_id: 7
+cuda: true
+torch_threads: 1
+cuda_deterministic: true
+
+# Logging and evaluation
+log_interval: 1000
+use_wandb: false
+eval_interval: 10000
+eval_episodes: 10
+render: false
