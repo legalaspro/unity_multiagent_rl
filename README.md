@@ -6,15 +6,26 @@ A multi-agent reinforcement learning framework for Unity environments. Provides 
 
 This repository implements four multi-agent reinforcement learning algorithms for Unity environments. The framework has been validated on two environments and can be extended to support additional Unity ML-Agents environments. Train, evaluate, and compare MARL algorithms on collaborative and competitive tasks.
 
-**Tennis** - Collaborative 2-agent environment where agents control rackets to keep a ball in play. Success requires achieving +0.5 average score over 100 episodes.
-
 ![MASAC Tennis](results/Tennis/masac_tennis.gif)
 
-**Soccer** - Competitive 4-agent environment with 2v2 teams (goalie and striker roles with different action sizes). Agents learn to score goals while defending. Success measured by win rate against previous model versions.
+**Tennis** - Collaborative 2-agent environment where agents control rackets to keep a ball in play. Success requires achieving +0.5 average score over 100 episodes.
 
 ![MASAC Soccer](results/Soccer/masac_soccer.gif)
 
+**Soccer** - Competitive 4-agent environment with 2v2 teams (goalie and striker roles with different action sizes). Agents learn to score goals while defending. Success measured by win rate against previous model versions.
+
 ## 🤖 Algorithms
+
+All algorithms implement **CTDE (Centralized Training, Decentralized Execution)** architecture, enabling agents to learn with global information during training while acting independently during execution. Agents engage in **self-play**, continuously improving by playing against previous versions of themselves.
+
+**Key Implementation Features:**
+
+- **Self-play training**: Agents improve by competing against their own evolving strategies
+- **Shared critic optimization**: For shared critic variants:
+
+  - **Global observation ordering**: Current agent → teammates → opponents for consistent input
+  - **Action concatenation**: All agent actions appended in same order for centralized critic
+  - **Consistent input structure**: Improves and speeds up shared critic and agent training
 
 - **MAPPO** (Multi-Agent Proximal Policy Optimization)
   - **All Shared**: Shared policy and critic networks across all agents
