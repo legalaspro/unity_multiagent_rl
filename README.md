@@ -6,13 +6,14 @@ A multi-agent reinforcement learning framework for Unity environments. Provides 
 
 This repository implements four multi-agent reinforcement learning algorithms for Unity environments. The framework has been validated on two environments and can be extended to support additional Unity ML-Agents environments. Train, evaluate, and compare MARL algorithms on collaborative and competitive tasks.
 
-![MASAC Tennis](results/Tennis/masac_tennis.gif)
+<div align="center">
+  <img src="results/Tennis/masac_tennis.gif" width="49%" alt="MASAC Tennis" />
+  <img src="results/Soccer/masac_soccer.gif" width="49%" alt="MASAC Soccer" />
+</div>
 
-**Tennis** - Collaborative 2-agent environment where agents control rackets to keep a ball in play. Success requires achieving +0.5 average score over 100 episodes.
+- **Tennis** - Collaborative 2-agent environment where agents control rackets to keep a ball in play. Success requires achieving +0.5 average score over 100 episodes.
 
-![MASAC Soccer](results/Soccer/masac_soccer.gif)
-
-**Soccer** - Competitive 4-agent environment with 2v2 teams (goalie and striker roles with different action sizes). Agents learn to score goals while defending. Success measured by win rate against previous model versions.
+- **Soccer** - Competitive 4-agent environment with 2v2 teams (goalie and striker roles with different action sizes). Agents learn to score goals while defending. Success measured by win rate against previous model versions.
 
 ## 🤖 Algorithms
 
