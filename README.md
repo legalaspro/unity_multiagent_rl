@@ -187,13 +187,13 @@ All training results are stored in `results/Tennis/` and `results/Soccer/` inclu
 
 #### Tennis Algorithm Comparison
 
-![Tennis Rewards Comparison](figures/Tennis_rewards.png)
+![Tennis Rewards Comparison](results/Tennis/Tennis_rewards.png)
 
 _Shows training progress for all algorithms on Tennis environment. MATD3 and MASAC achieve the highest scores (~2.5), while MAPPO variants show steady improvement over longer training periods._
 
 #### Soccer Competitive Evaluation
 
-![Soccer Win Rate vs Random](figures/Soccer_competitive_win_rate_vs_random.png)
+![Soccer Win Rate vs Random](results/Soccer/Soccer_competitive_win_rate_vs_random.png)
 
 _Displays win rate against random opponents over training. MAPPO (shared critic) reaches 97%+ win rate, demonstrating superior performance in competitive multi-agent scenarios._
 
