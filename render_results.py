@@ -1,345 +1,255 @@
-import argparse
+#!/usr/bin/env python3
+"""
+Simplified script to render training results from different algorithms.
+"""
+
 import matplotlib.pyplot as plt
 import numpy as np
 import os
-import glob
 import pandas as pd
 
-def parse_args():
-    """Parse command line arguments for the render script."""
-    p = argparse.ArgumentParser("Render training results from different algorithms.")
-    p.add_argument("--env_id", choices=["Tennis", "Soccer"], default="Tennis",
-                   help="Environment to visualize results for")
-    p.add_argument("--algorithms", nargs='+',
-                   default=["mappo_all_shared", "mappo_critic_shared", "matd3", "masac", "maddpg"],
-                   help="Algorithms to compare")
-    p.add_argument("--algo_titles", nargs='+',
-                   default=["MAPPO (all shared)", "MAPPO (critic shared)", "MATD3", "MASAC", "MADDPG"],
-                   help="Custom display names for algorithms (same order as --algorithms)")
-    p.add_argument("--results_dir", type=str, default="./results",
-                   help="Directory containing resuts files")
-    p.add_argument("--save_dir", type=str, default="./figures",
-                   help="Directory to save figures")
-    p.add_argument("--metrics", nargs='+',
-                   default=["rewards", "episode_length"],
-                   help="Metrics to visualize")
-    p.add_argument("--individual", action="store_true",
-                   help="Create individual plots for each algorithm")
-    p.add_argument("--single_algo", type=str,
-                   help="Create plots for only this specific algorithm")
-    return p.parse_args()
+def load_algorithm_data(results_dir, env_id, algo_name):
+    """Load training data for a single algorithm."""
+    algo_dir = os.path.join(results_dir, env_id, algo_name)
 
-def load_data(log_dir, env_id, algorithms, metrics):
-    """Load training data for each algorithm from numpy files."""
-    data = {}
+    if not os.path.exists(algo_dir):
+        print(f"Directory not found: {algo_dir}")
+        return None
 
-    # Base directory for results
-    base_dir = os.path.join(log_dir, env_id)
+    # Load numpy files
+    files = {
+        "steps": os.path.join(algo_dir, "steps_history.npy"),
+        "rewards": os.path.join(algo_dir, "scores_history.npy"),
+        "episode_length": os.path.join(algo_dir, "episode_length_history.npy")
+    }
 
-    for algo in algorithms:
-        # Find all runs for this algorithm
-        algo_dirs = glob.glob(os.path.join(base_dir, f"{algo}"))
+    # Check if all files exist
+    for file_path in files.values():
+        if not os.path.exists(file_path):
+            print(f"Missing file: {file_path}")
+            return None
 
-        if not algo_dirs:
-            print(f"No directories found for {algo} in {base_dir}")
-            continue
+    try:
+        steps = np.load(files["steps"])
+        rewards = np.load(files["rewards"])
+        episode_lengths = np.load(files["episode_length"])
 
-        # Initialize data structure for this algorithm
-        algo_data = {metric: {"steps": [], "values": []} for metric in metrics}
+        # If rewards is 2D (multiple agents), average across agents
+        if len(rewards.shape) > 1:
+            rewards = np.mean(rewards, axis=1)
 
-        for run_dir in algo_dirs:
-            try:
-                # Load numpy files
-                steps_file = os.path.join(run_dir, "steps_history.npy")
-                scores_file = os.path.join(run_dir, "scores_history.npy")
-                ep_length_file = os.path.join(run_dir, "episode_length_history.npy")
+        return {
+            "steps": steps,
+            "rewards": rewards,
+            "episode_length": episode_lengths
+        }
+    except Exception as e:
+        print(f"Error loading data for {algo_name}: {e}")
+        return None
 
-                if os.path.exists(steps_file) and os.path.exists(scores_file) and os.path.exists(ep_length_file):
-                    steps = np.load(steps_file)
-                    scores = np.load(scores_file)
-                    ep_lengths = np.load(ep_length_file)
-
-                    # If scores is 2D (multiple agents), average across agents
-                    if len(scores.shape) > 1:
-                        scores = np.mean(scores, axis=1)
-
-                    # Add to data
-                    if "rewards" in metrics:
-                        algo_data["rewards"]["steps"].append(steps)
-                        algo_data["rewards"]["values"].append(scores)
-
-                    if "episode_length" in metrics:
-                        algo_data["episode_length"]["steps"].append(steps)
-                        algo_data["episode_length"]["values"].append(ep_lengths)
-                else:
-                    print(f"Missing required files in {run_dir}")
-
-            except Exception as e:
-                print(f"Error processing {run_dir}: {e}")
-
-        # Calculate statistics across runs for each algorithm
-        for metric in metrics:
-            if algo_data[metric]["steps"]:
-                # Interpolate to common x-axis
-                all_steps = np.unique(np.concatenate(algo_data[metric]["steps"]))
-                all_steps.sort()
-
-                interp_values = []
-                for steps, values in zip(algo_data[metric]["steps"], algo_data[metric]["values"]):
-                    if len(steps) > 1:  # Need at least 2 points for interpolation
-                        interp_values.append(np.interp(
-                            all_steps,
-                            steps,
-                            values,
-                            left=np.nan,
-                            right=np.nan
-                        ))
-
-                if interp_values:
-                    interp_array = np.array(interp_values)
-
-                    # Calculate statistics
-                    mean_values = np.nanmean(interp_array, axis=0)
-                    min_values = np.nanmin(interp_array, axis=0)
-                    max_values = np.nanmax(interp_array, axis=0)
-                    std_values = np.nanstd(interp_array, axis=0)
-
-                    # Remove NaN values from the beginning and end
-                    valid_indices = ~np.isnan(mean_values)
-                    if np.any(valid_indices):
-                        valid_steps = all_steps[valid_indices]
-                        valid_mean = mean_values[valid_indices]
-                        valid_min = min_values[valid_indices]
-                        valid_max = max_values[valid_indices]
-                        valid_std = std_values[valid_indices]
-
-                        # Calculate 100-step rolling average
-                        window_size = min(100, len(valid_mean))
-                        if window_size > 1:
-                            rolling_mean = pd.Series(valid_mean).rolling(window=window_size, min_periods=1).mean().values
-                        else:
-                            rolling_mean = valid_mean
-
-                        algo_data[metric] = {
-                            "steps": valid_steps,
-                            "mean": valid_mean,
-                            "min": valid_min,
-                            "max": valid_max,
-                            "std": valid_std,
-                            "rolling_mean": rolling_mean
-                        }
-                    else:
-                        algo_data[metric] = {
-                            "steps": [],
-                            "mean": [],
-                            "min": [],
-                            "max": [],
-                            "std": [],
-                            "rolling_mean": []
-                        }
-
-        data[algo] = algo_data
-
-    return data
-
-def render_comparison(data, env_id, metrics, save_dir, algo_titles=None):
-    """Render comparison plots for the specified metrics with statistics."""
+def plot_metric(data, env_id, metric, algo_titles, save_dir="figures"):
+    """Create a comparison plot for a specific metric."""
     os.makedirs(save_dir, exist_ok=True)
 
-    # Set up the plot style
-    plt.style.use('default')
-    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f']
+    plt.figure(figsize=(12, 8))
+    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
 
-    # Create mapping from algorithm names to display titles
-    algo_names = list(data.keys())
-    if algo_titles and len(algo_titles) == len(algo_names):
-        title_map = dict(zip(algo_names, algo_titles))
-    else:
-        title_map = {algo: algo for algo in algo_names}  # Use original names if no titles provided
-
-    # Create separate plots for each metric
-    for metric in metrics:
-        # Check if we have data for this metric
-        has_data = any(metric in data[algo] and len(data[algo][metric]["steps"]) > 0 for algo in data.keys())
-        if not has_data:
+    for i, (algo_name, algo_data) in enumerate(data.items()):
+        if algo_data is None or metric not in algo_data:
             continue
 
-        # Create single plot
-        _, ax = plt.subplots(1, 1, figsize=(12, 8))
+        steps = algo_data["steps"]
+        values = algo_data[metric]
 
-        for i, (algo, algo_data) in enumerate(data.items()):
-            if metric in algo_data and len(algo_data[metric]["steps"]) > 0:
-                steps = algo_data[metric]["steps"]
-                mean_vals = algo_data[metric]["mean"]
-                rolling_vals = algo_data[metric]["rolling_mean"]
+        # Calculate 100-episode rolling average
+        window_size = min(100, len(values))
+        rolling_values = pd.Series(values).rolling(window=window_size, min_periods=1).mean().values
 
-                color = colors[i % len(colors)]
-                display_title = title_map[algo]
+        color = colors[i % len(colors)]
 
-                # Plot raw mean as light dashed line
-                ax.plot(steps, mean_vals, '--', alpha=0.3, linewidth=1.1, color=color)
+        # Get display name from algo_titles or use original name
+        display_name = algo_titles.get(algo_name, algo_name)
 
-                # Plot 100-episode rolling average as thick line
-                ax.plot(steps, rolling_vals, linewidth=3, color=color, label=display_title)
+        # Plot raw values as light dashed line
+        plt.plot(steps, values, '--', alpha=0.3, linewidth=1.1, color=color)
 
-        # Styling
-        if metric == "rewards":
-            metric_title = "Rewards"
-            main_title = f"{env_id} Algorithm Comparison - Rewards"
-            subtitle = "(100-episode moving average)"
-        else:
-            metric_title = "Episode Length"
-            main_title = f"{env_id} Algorithm Comparison - Episode Length"
-            subtitle = "(100-episode moving average)"
+        # Plot rolling average as thick line
+        plt.plot(steps, rolling_values, linewidth=3, color=color, label=display_name)
 
-        ax.set_title(f"{main_title}\n{subtitle}", fontsize=14, fontweight='bold')
-        ax.set_xlabel("Environment Steps", fontsize=12)
-        ax.set_ylabel(metric_title, fontsize=12)
+    # Styling
+    metric_title = "Rewards" if metric == "rewards" else "Episode Length"
+    plt.title(f"{env_id} Algorithm Comparison - {metric_title}\n(100-episode moving average)",
+             fontsize=14, fontweight='bold')
+    plt.xlabel("Environment Steps", fontsize=12)
+    plt.ylabel(metric_title, fontsize=12)
 
-        # Position legend appropriately
-        legend_loc = 'lower right' if metric == 'rewards' else 'upper left'
-        ax.legend(loc=legend_loc, fontsize=11)
-        ax.grid(True, alpha=0.3)
+    # Position legend
+    legend_loc = 'lower right' if metric == 'rewards' else 'upper left'
+    plt.legend(loc=legend_loc, fontsize=11)
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
 
-        plt.tight_layout()
+    # Save figure
+    save_path = os.path.join(save_dir, f"{env_id}_{metric}.png")
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    print(f"Saved {metric_title} figure to {save_path}")
+    plt.close()
 
-        # Save individual figure
-        save_path = os.path.join(save_dir, f"{env_id}_{metric}.png")
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"Saved {metric} figure to {save_path}")
-        plt.close()
 
-def render_individual_algorithm(data, env_id, algo, metrics, save_dir, algo_title=None):
-    """Render individual plots for a specific algorithm showing mean and moving average."""
-    os.makedirs(save_dir, exist_ok=True)
-
-    if algo not in data:
-        print(f"No data found for algorithm: {algo}")
+def plot_individual_algorithm(algo_name, algo_data, env_id, algo_titles, save_dir="figures"):
+    """Create individual plots for a specific algorithm."""
+    if algo_data is None:
+        print(f"No data available for {algo_name}")
         return
 
-    # Set up colors for mean and rolling average
-    mean_color = '#A8D0E6'  # Light blue
+    os.makedirs(save_dir, exist_ok=True)
+    display_name = algo_titles.get(algo_name, algo_name)
+
+    # Colors for individual plots
+    raw_color = '#A8D0E6'  # Light blue
     rolling_color = '#2E86C1'  # Medium blue
 
-    display_title = algo_title if algo_title else algo
-
-    # Create separate plots for each metric
-    for metric in metrics:
-        if metric not in data[algo] or len(data[algo][metric]["steps"]) == 0:
+    for metric in ["rewards", "episode_length"]:
+        if metric not in algo_data:
             continue
 
-        # Create single plot
-        _, ax = plt.subplots(1, 1, figsize=(12, 8))
+        steps = algo_data["steps"]
+        values = algo_data[metric]
 
-        steps = data[algo][metric]["steps"]
-        mean_vals = data[algo][metric]["mean"]
-        rolling_vals = data[algo][metric]["rolling_mean"]
+        # Calculate 100-episode rolling average
+        window_size = min(100, len(values))
+        rolling_values = pd.Series(values).rolling(window=window_size, min_periods=1).mean().values
 
-        # Plot raw mean as thin dashed line
-        ax.plot(steps, mean_vals, '--', alpha=0.7, linewidth=1.5, color=mean_color,
-                label='Episode Mean')
+        plt.figure(figsize=(12, 8))
 
-        # Plot 100-episode rolling average as thick line
-        ax.plot(steps, rolling_vals, linewidth=3, color=rolling_color,
-                label='100-Episode Moving Average')
+        # Plot raw values as thin dashed line
+        plt.plot(steps, values, '--', alpha=0.7, linewidth=1.5, color=raw_color, label='Episode Values')
+
+        # Plot rolling average as thick line
+        plt.plot(steps, rolling_values, linewidth=3, color=rolling_color, label='100-Episode Moving Average')
 
         # Styling
-        if metric == "rewards":
-            metric_title = "Rewards"
-            main_title = f"{env_id} - {display_title} Training Rewards"
-        else:
-            metric_title = "Episode Length"
-            main_title = f"{env_id} - {display_title} Training Episode Length"
+        metric_title = "Rewards" if metric == "rewards" else "Episode Length"
+        plt.title(f"{env_id} - {display_name} Training {metric_title}\n(100-episode moving average)",
+                 fontsize=14, fontweight='bold')
+        plt.xlabel("Environment Steps", fontsize=12)
+        plt.ylabel(metric_title, fontsize=12)
 
-        subtitle = "(100-episode moving average)"
-
-        ax.set_title(f"{main_title}\n{subtitle}", fontsize=14, fontweight='bold')
-        ax.set_xlabel("Environment Steps", fontsize=12)
-        ax.set_ylabel(metric_title, fontsize=12)
-
-        # Position legend appropriately
+        # Position legend
         legend_loc = 'lower right' if metric == 'rewards' else 'upper left'
-        ax.legend(loc=legend_loc, fontsize=11)
-        ax.grid(True, alpha=0.3)
-
+        plt.legend(loc=legend_loc, fontsize=11)
+        plt.grid(True, alpha=0.3)
         plt.tight_layout()
 
-        # Save individual figure
-        safe_algo_name = algo.replace(" ", "_").replace("(", "").replace(")", "")
+        # Save figure
+        safe_algo_name = algo_name.replace(" ", "_").replace("(", "").replace(")", "")
         save_path = os.path.join(save_dir, f"{env_id}_{safe_algo_name}_{metric}.png")
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"Saved {display_title} {metric} figure to {save_path}")
+        print(f"Saved {display_name} {metric_title} figure to {save_path}")
         plt.close()
 
-def print_summary_statistics(data, env_id, metrics):
-    """Print summary statistics for each algorithm and metric."""
-    print(f"\n=== Summary Statistics for {env_id} ===")
 
-    for metric in metrics:
+def print_summary(data, env_id, algo_titles):
+    """Print summary statistics."""
+    print(f"\n=== {env_id} Training Results Summary ===")
+
+    for metric in ["rewards", "episode_length"]:
         print(f"\n{metric.upper()}:")
-        print("-" * 50)
+        print("-" * 60)
 
-        for algo, algo_data in data.items():
-            if metric in algo_data and len(algo_data[metric]["steps"]) > 0:
-                mean_vals = algo_data[metric]["mean"]
-                min_vals = algo_data[metric]["min"]
-                max_vals = algo_data[metric]["max"]
-                rolling_vals = algo_data[metric]["rolling_mean"]
+        for algo_name, algo_data in data.items():
+            if algo_data is None or metric not in algo_data:
+                continue
 
-                # Final values (last 10% of training)
-                final_portion = max(1, len(mean_vals) // 10)
-                final_mean = np.mean(mean_vals[-final_portion:])
-                final_std = np.std(mean_vals[-final_portion:])
-                final_rolling = np.mean(rolling_vals[-final_portion:])
+            values = algo_data[metric]
 
-                # Overall statistics
-                overall_min = np.min(min_vals)
-                overall_max = np.max(max_vals)
-                overall_mean = np.mean(mean_vals)
+            # Final values (last 10% of training)
+            final_portion = max(1, len(values) // 10)
+            final_mean = np.mean(values[-final_portion:])
+            final_std = np.std(values[-final_portion:])
 
-                print(f"{algo:20s} | "
-                      f"Final: {final_mean:8.3f}±{final_std:6.3f} | "
-                      f"Overall: {overall_mean:8.3f} | "
-                      f"Range: [{overall_min:8.3f}, {overall_max:8.3f}] | "
-                      f"Final 100-avg: {final_rolling:8.3f}")
+            # Overall statistics
+            overall_mean = np.mean(values)
+            overall_min = np.min(values)
+            overall_max = np.max(values)
+
+            # Get display name from algo_titles or use original name
+            display_name = algo_titles.get(algo_name, algo_name)
+
+            print(f"{display_name:25s} | "
+                  f"Final: {final_mean:8.3f}±{final_std:6.3f} | "
+                  f"Overall: {overall_mean:8.3f} | "
+                  f"Range: [{overall_min:8.3f}, {overall_max:8.3f}]")
+
 
 def main():
-    args = parse_args()
+    # Configuration - edit these as needed
+    env_id = "Tennis"  # or "Soccer"
+    algorithms = ["mappo_all_shared", "mappo_critic_shared", "matd3", "masac", "maddpg"]
 
-    # Define metrics to extract
-    metrics = ["rewards", "episode_length"]
+    # Render mode: "comparison", "individual", or specific algorithm name like "masac"
+    render_mode = "comparison"  # Change to "individual" or specific algorithm name
 
-    # Load data for each algorithm
-    data = load_data(args.results_dir, args.env_id, args.algorithms, metrics)
+    # Custom display names for algorithms (optional - edit these for nicer plot labels)
+    algo_titles = {
+        "mappo_all_shared": "MAPPO (all shared)",
+        "mappo_critic_shared": "MAPPO (critic shared)",
+        "matd3": "MATD3",
+        "masac": "MASAC",
+        "maddpg": "MADDPG"
+    }
+
+    results_dir = "results"
+    save_dir = "figures"
+
+    print(f"Loading data for {env_id} environment...")
+
+    # Load data for all algorithms
+    data = {}
+    for algo in algorithms:
+        print(f"Loading {algo}...")
+        data[algo] = load_algorithm_data(results_dir, env_id, algo)
+
+    # Filter out algorithms with no data
+    data = {k: v for k, v in data.items() if v is not None}
+
+    if not data:
+        print("No data loaded. Check your paths and algorithm names.")
+        return
+
+    print(f"Successfully loaded data for: {list(data.keys())}")
 
     # Print summary statistics
-    print_summary_statistics(data, args.env_id, metrics)
+    print_summary(data, env_id, algo_titles)
 
-    # Create mapping from algorithm names to display titles
-    algo_names = list(data.keys())
-    if args.algo_titles and len(args.algo_titles) == len(algo_names):
-        title_map = dict(zip(algo_names, args.algo_titles))
-    else:
-        title_map = {algo: algo for algo in algo_names}
+    # Create plots based on render mode
+    print(f"\nCreating plots...")
 
-    # Handle different rendering modes
-    if args.single_algo:
-        # Render plots for a single specific algorithm
-        if args.single_algo in data:
-            algo_title = title_map.get(args.single_algo, args.single_algo)
-            render_individual_algorithm(data, args.env_id, args.single_algo, metrics,
-                                      args.save_dir, algo_title)
-        else:
-            print(f"Algorithm '{args.single_algo}' not found in data. Available: {list(data.keys())}")
-    elif args.individual:
-        # Render individual plots for all algorithms
-        for algo in data.keys():
-            algo_title = title_map.get(algo, algo)
-            render_individual_algorithm(data, args.env_id, algo, metrics,
-                                      args.save_dir, algo_title)
+    if render_mode == "comparison":
+        # Create comparison plots
+        plot_metric(data, env_id, "rewards", algo_titles, save_dir)
+        plot_metric(data, env_id, "episode_length", algo_titles, save_dir)
+        print(f"Created comparison plots in {save_dir}/")
+
+    elif render_mode == "individual":
+        # Create individual plots for all algorithms
+        for algo_name, algo_data in data.items():
+            plot_individual_algorithm(algo_name, algo_data, env_id, algo_titles, save_dir)
+        print(f"Created individual plots for all algorithms in {save_dir}/")
+
+    elif render_mode in data:
+        # Create individual plots for specific algorithm
+        plot_individual_algorithm(render_mode, data[render_mode], env_id, algo_titles, save_dir)
+        display_name = algo_titles.get(render_mode, render_mode)
+        print(f"Created individual plots for {display_name} in {save_dir}/")
+
     else:
-        # Default: render comparison plots
-        render_comparison(data, args.env_id, metrics, args.save_dir, args.algo_titles)
+        print(f"Invalid render_mode: '{render_mode}'")
+        print(f"Valid options: 'comparison', 'individual', or one of: {list(data.keys())}")
+        return
+
+    print(f"\nDone!")
+
 
 if __name__ == "__main__":
     main()
