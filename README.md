@@ -134,6 +134,8 @@ pip install -e ./python
 
 ### Download Unity Environments
 
+**Note**: These Unity environments use an older ML-Agents version (0.4.0 or earlier) loaded from the `python/` folder. The algorithms can be adapted to work with newer Unity ML-Agents versions.
+
 The Unity environment executables are **not included** in this repository and must be downloaded separately:
 
 #### Tennis Environment
