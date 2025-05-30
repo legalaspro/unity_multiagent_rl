@@ -11,6 +11,8 @@ dependencies:
   - pyyaml>=6.0
   - grpcio>=1.62.0
   - python-dotenv>=1.0.0
+  - pytest>=7.0.0
+  - pytest-cov>=4.1.0
   - pip:
       - torch==2.2.2
       - tensorboard>=2.12.0
