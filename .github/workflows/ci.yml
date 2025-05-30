@@ -1,0 +1,37 @@
+name: Python CI
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11"] # As specified in README
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        # The following is needed because of the editable install for the python/ sub-package
+        pip install -e ./python
+    - name: Test with pytest
+      run: |
+        pytest --cov=algos --cov=buffers --cov=envs --cov=evals --cov=networks --cov=runners --cov=utils --cov-report=xml:coverage.xml
+    - name: Upload coverage reports to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }} # User will need to set this up in GitHub secrets
+        files: coverage.xml
+        fail_ci_if_error: true
+    - name: Upload coverage.xml as artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-report
+        path: coverage.xml

@@ -1,5 +1,9 @@
 # Unity Multi-Agent Reinforcement Learning
 
+[![Python Version](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![CI Tests](https://github.com/legalaspro/unity_multiagent_rl/actions/workflows/ci.yml/badge.svg)](https://github.com/legalaspro/unity_multiagent_rl/actions/workflows/ci.yml)
+[![coverage status](https://codecov.io/gh/legalaspro/unity_multiagent_rl/branch/main/graph/badge.svg)](https://app.codecov.io/gh/legalaspro/unity_multiagent_rl)
+
 A multi-agent reinforcement learning framework for Unity environments. Provides implementations for training and evaluating MARL algorithms on collaborative and competitive tasks.
 
 ## 🎯 Project Overview
