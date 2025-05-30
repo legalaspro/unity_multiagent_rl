@@ -14,3 +14,7 @@ tensorboard>=2.12.0
 # Configuration
 pyyaml>=6.0
 python-dotenv>=1.0.0
+
+# Testing
+pytest>=7.0.0
+pytest-mock
