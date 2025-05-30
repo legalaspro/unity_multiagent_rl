@@ -4,7 +4,6 @@ import torch
 from gymnasium import spaces
 
 from buffers.replay_buffer import ReplayBuffer
-from utils.env_tools import get_shape_from_obs_space, get_shape_from_act_space # Required by ReplayBuffer
 
 # Default parameters for creating a ReplayBuffer instance in tests
 DEFAULT_BUFFER_SIZE = 100
@@ -86,7 +85,7 @@ def replay_buffer_multi_agent(multi_agent_state_space_defs, multi_agent_action_s
 def generate_dummy_experience(state_space_list, action_space_list):
     """Generates a single experience tuple (lists for each component) for all agents."""
     num_agents = len(state_space_list)
-    
+
     states_li = []
     actions_li = []
     next_states_li = []
@@ -94,7 +93,7 @@ def generate_dummy_experience(state_space_list, action_space_list):
     for i in range(num_agents):
         states_li.append(state_space_list[i].sample().astype(np.float32))
         next_states_li.append(state_space_list[i].sample().astype(np.float32))
-        
+
         action_space_i = action_space_list[i]
         # Store actions in the way ReplayBuffer expects them (raw, before one-hot)
         if isinstance(action_space_i, spaces.Discrete):
@@ -120,18 +119,18 @@ def test_replay_buffer_initialization(replay_buffer_single_agent_discrete):
     assert rb.batch_size == DEFAULT_BATCH_SIZE
     assert rb.n_step == DEFAULT_N_STEP
     assert rb.num_agents == 1
-    
-    state_shape = get_shape_from_obs_space(rb.state_spaces[0])
-    action_shape = get_shape_from_act_space(rb.action_spaces[0]) # For Discrete(N), this is ()
+
+    state_shape = rb.state_shapes[0]  # ReplayBuffer stores shapes, not spaces
+    action_shape = rb.action_shapes[0]  # For Discrete(N), this is 1 (int)
 
     assert len(rb.states_buffer) == 1
     assert rb.states_buffer[0].shape == (DEFAULT_BUFFER_SIZE, *state_shape)
-    # For Discrete, action_shape is (), so actions_buffer[0] is (DEFAULT_BUFFER_SIZE,)
-    assert rb.actions_buffer[0].shape == (DEFAULT_BUFFER_SIZE, *action_shape) 
+    # For Discrete, action_shape is 1 (int), so actions_buffer[0] is (DEFAULT_BUFFER_SIZE, 1)
+    assert rb.actions_buffer[0].shape == (DEFAULT_BUFFER_SIZE, action_shape)
     assert rb.rewards_buffer[0].shape == (DEFAULT_BUFFER_SIZE, 1)
     assert rb.next_states_buffer[0].shape == (DEFAULT_BUFFER_SIZE, *state_shape)
     assert rb.dones_buffer[0].shape == (DEFAULT_BUFFER_SIZE, 1)
-    
+
     assert rb.pos == 0
     assert rb.size == 0
     assert len(rb) == 0
@@ -141,18 +140,18 @@ def test_replay_buffer_initialization_multi_agent(replay_buffer_multi_agent):
     assert rb.buffer_size == DEFAULT_BUFFER_SIZE
     assert rb.num_agents == 2
     assert len(rb.states_buffer) == 2
-    
-    state_shape_0 = get_shape_from_obs_space(rb.state_spaces[0])
-    action_shape_0 = get_shape_from_act_space(rb.action_spaces[0]) # Discrete -> ()
-    state_shape_1 = get_shape_from_obs_space(rb.state_spaces[1])
-    action_shape_1 = get_shape_from_act_space(rb.action_spaces[1]) # Box -> (shape,)
+
+    state_shape_0 = rb.state_shapes[0]  # ReplayBuffer stores shapes, not spaces
+    action_shape_0 = rb.action_shapes[0]  # Discrete -> 1 (int)
+    state_shape_1 = rb.state_shapes[1]  # ReplayBuffer stores shapes, not spaces
+    action_shape_1 = rb.action_shapes[1]  # Box -> 2 (int, first dimension)
 
     assert rb.states_buffer[0].shape == (DEFAULT_BUFFER_SIZE, *state_shape_0)
     assert rb.states_buffer[1].shape == (DEFAULT_BUFFER_SIZE, *state_shape_1)
-    
-    assert rb.actions_buffer[0].shape == (DEFAULT_BUFFER_SIZE, *action_shape_0)
-    assert rb.actions_buffer[1].shape == (DEFAULT_BUFFER_SIZE, *action_shape_1)
-    
+
+    assert rb.actions_buffer[0].shape == (DEFAULT_BUFFER_SIZE, action_shape_0)  # Discrete
+    assert rb.actions_buffer[1].shape == (DEFAULT_BUFFER_SIZE, action_shape_1)  # Box
+
     assert rb.actions_buffer[0].dtype == np.int64 # Agent 0 is Discrete
     assert rb.actions_buffer[1].dtype == np.float32 # Agent 1 is Box
     assert rb.pos == 0
@@ -163,9 +162,9 @@ def test_add_single_transition_single_agent_discrete(replay_buffer_single_agent_
     states, actions, rewards, next_states, dones = generate_dummy_experience(
         state_space_defs, discrete_action_space_defs
     )
-    
+
     rb.add(states, actions, rewards, next_states, dones)
-    
+
     assert rb.pos == 1 % DEFAULT_BUFFER_SIZE
     assert rb.size == 1
     assert len(rb) == 1
@@ -181,9 +180,9 @@ def test_add_single_transition_single_agent_continuous(replay_buffer_single_agen
     states, actions, rewards, next_states, dones = generate_dummy_experience(
         state_space_defs, continuous_action_space_defs
     )
-    
+
     rb.add(states, actions, rewards, next_states, dones)
-    
+
     assert rb.pos == 1 % DEFAULT_BUFFER_SIZE
     assert rb.size == 1
     assert np.array_equal(rb.actions_buffer[0][0], actions[0]) # actions[0] is a np.array for Box
@@ -207,8 +206,8 @@ def test_add_wrapping_around_capacity(replay_buffer_single_agent_discrete, state
             state_space_defs, discrete_action_space_defs,
         )
         rb.add(states, actions, rewards, next_states, dones)
-    
-    assert rb.pos == 0 
+
+    assert rb.pos == 0
     assert rb.size == DEFAULT_BUFFER_SIZE
 
     s_new, a_new, r_new, ns_new, d_new = generate_dummy_experience(
@@ -217,8 +216,8 @@ def test_add_wrapping_around_capacity(replay_buffer_single_agent_discrete, state
     rb.add(s_new, a_new, r_new, ns_new, d_new)
 
     assert rb.pos == 1
-    assert rb.size == DEFAULT_BUFFER_SIZE 
-    
+    assert rb.size == DEFAULT_BUFFER_SIZE
+
     assert np.array_equal(rb.states_buffer[0][0], s_new[0])
     assert rb.actions_buffer[0][0] == a_new[0]
     assert rb.rewards_buffer[0][0] == pytest.approx(r_new[0])
@@ -229,13 +228,13 @@ def test_sample_from_empty_buffer(replay_buffer_single_agent_discrete):
     assert samples is None
 
 def test_sample_less_than_batch_size(replay_buffer_single_agent_discrete, state_space_defs, discrete_action_space_defs):
-    rb = replay_buffer_single_agent_discrete 
+    rb = replay_buffer_single_agent_discrete
     for _ in range(DEFAULT_BATCH_SIZE - 1): # Add 9 experiences, batch_size is 10
         states, actions, rewards, next_states, dones = generate_dummy_experience(
             state_space_defs, discrete_action_space_defs
         )
         rb.add(states, actions, rewards, next_states, dones)
-    
+
     samples = rb.sample()
     assert samples is None
 
@@ -253,13 +252,13 @@ def test_sample_correct_batch_shape_and_types_single_agent_discrete(replay_buffe
 
     assert len(s_batch) == 1
     assert len(a_batch) == 1 # This is a list of tensors, one per agent
-    
-    state_shape_tuple = get_shape_from_obs_space(rb.state_spaces[0])
+
+    state_shape_tuple = rb.state_shapes[0]  # ReplayBuffer stores shapes, not spaces
     action_space_n = rb.action_spaces[0].n # For Discrete
 
     assert s_batch[0].shape == (DEFAULT_BATCH_SIZE, *state_shape_tuple)
     # a_batch[0] for Discrete is one-hot encoded by _preprocess_actions_for_critic
-    assert a_batch[0].shape == (DEFAULT_BATCH_SIZE, action_space_n) 
+    assert a_batch[0].shape == (DEFAULT_BATCH_SIZE, action_space_n)
     assert r_batch[0].shape == (DEFAULT_BATCH_SIZE, 1)
     assert ns_batch[0].shape == (DEFAULT_BATCH_SIZE, *state_shape_tuple)
     assert d_batch[0].shape == (DEFAULT_BATCH_SIZE, 1)
@@ -268,9 +267,9 @@ def test_sample_correct_batch_shape_and_types_single_agent_discrete(replay_buffe
     assert a_batch[0].dtype == torch.float32 # one-hot is float
     assert r_batch[0].dtype == torch.float32
     assert ns_batch[0].dtype == torch.float32
-    assert d_batch[0].dtype == torch.float32 
+    assert d_batch[0].dtype == torch.float32
 
-    assert s_full.shape == (DEFAULT_BATCH_SIZE, state_shape_tuple[0]) 
+    assert s_full.shape == (DEFAULT_BATCH_SIZE, state_shape_tuple[0])
     assert ns_full.shape == (DEFAULT_BATCH_SIZE, state_shape_tuple[0])
     assert a_full.shape == (DEFAULT_BATCH_SIZE, action_space_n)
 
@@ -280,7 +279,7 @@ def test_sample_correct_batch_shape_multi_agent(replay_buffer_multi_agent, multi
     for _ in range(DEFAULT_BATCH_SIZE + 5):
         s, a, r, ns, d = generate_dummy_experience(multi_agent_state_space_defs, multi_agent_action_space_defs)
         rb.add(s, a, r, ns, d)
-    
+
     samples = rb.sample()
     assert samples is not None
     s_batch_list, a_batch_list, r_batch_list, ns_batch_list, d_batch_list, s_full, ns_full, a_full = samples
@@ -289,19 +288,19 @@ def test_sample_correct_batch_shape_multi_agent(replay_buffer_multi_agent, multi
     sum_action_dims_critic = 0
 
     for i in range(num_agents):
-        state_shape_i = get_shape_from_obs_space(rb.state_spaces[i])
+        state_shape_i = rb.state_shapes[i]  # ReplayBuffer stores shapes, not spaces
         assert s_batch_list[i].shape == (DEFAULT_BATCH_SIZE, *state_shape_i)
         sum_state_dims += state_shape_i[0]
-        
+
         action_space_i = rb.action_spaces[i]
         if isinstance(action_space_i, spaces.Discrete):
             assert a_batch_list[i].shape == (DEFAULT_BATCH_SIZE, action_space_i.n) # one-hot
             sum_action_dims_critic += action_space_i.n
         elif isinstance(action_space_i, spaces.Box):
-            action_shape_i = get_shape_from_act_space(action_space_i)
-            assert a_batch_list[i].shape == (DEFAULT_BATCH_SIZE, *action_shape_i)
-            sum_action_dims_critic += action_shape_i[0]
-            
+            action_shape_i = rb.action_shapes[i]  # ReplayBuffer stores shapes, not spaces (int)
+            assert a_batch_list[i].shape == (DEFAULT_BATCH_SIZE, action_shape_i)
+            sum_action_dims_critic += action_shape_i
+
         assert r_batch_list[i].shape == (DEFAULT_BATCH_SIZE, 1)
         assert ns_batch_list[i].shape == (DEFAULT_BATCH_SIZE, *state_shape_i)
         assert d_batch_list[i].shape == (DEFAULT_BATCH_SIZE, 1)
@@ -317,14 +316,14 @@ def test_capacity_limit(replay_buffer_single_agent_discrete, state_space_defs, d
             state_space_defs, discrete_action_space_defs
         )
         rb.add(states, actions, rewards, next_states, dones)
-    
+
     assert rb.size == DEFAULT_BUFFER_SIZE
     assert len(rb) == DEFAULT_BUFFER_SIZE
     assert rb.pos == (DEFAULT_BUFFER_SIZE + 20) % DEFAULT_BUFFER_SIZE
 
 def test_data_integrity_single_agent_discrete(replay_buffer_single_agent_discrete, state_space_defs, discrete_action_space_defs):
     rb = replay_buffer_single_agent_discrete
-    
+
     added_experiences = []
     for i in range(DEFAULT_BATCH_SIZE + 5): # Fill enough to sample
         s, a, r, ns, d = generate_dummy_experience(
@@ -332,7 +331,7 @@ def test_data_integrity_single_agent_discrete(replay_buffer_single_agent_discret
         )
         # Make dones alternate to test n_step flush properly if n_step > 1 (though here it's 1)
         # For n_step=1, done status doesn't affect much beyond its own value.
-        actual_dones = [True if i % 2 == 0 else False for _ in d] 
+        actual_dones = [True if i % 2 == 0 else False for _ in d]
         rb.add(s, a, r, ns, actual_dones)
         # Store the exact values that were passed to add, for later comparison with buffer contents
         added_experiences.append({'s': s[0], 'a': a[0], 'r': r[0], 'ns': ns[0], 'd': actual_dones[0]})
@@ -361,7 +360,7 @@ def test_n_step_add_and_data_storage(state_space_defs, discrete_action_space_def
 
     experiences_raw = [] # To store s,a,r,ns,d as added
     # Add enough experiences to form several n-step transitions
-    for i in range(n_step_val + 2): 
+    for i in range(n_step_val + 2):
         s, a, r, ns, d_original = generate_dummy_experience(state_space_defs, discrete_action_space_defs)
         # Ensure dones are False for the first n_step_val-1 items to allow full n-step accumulation
         # The last item's done status can be True or False.
@@ -384,10 +383,10 @@ def test_n_step_add_and_data_storage(state_space_defs, discrete_action_space_def
     stored_r0_n_step = rb_nstep.rewards_buffer[0][0]
     stored_ns0_n_step = rb_nstep.next_states_buffer[0][0]
     stored_d0_n_step = rb_nstep.dones_buffer[0][0]
-    
+
     expected_s0 = experiences_raw[0]['s']
     expected_a0 = experiences_raw[0]['a']
-    
+
     expected_R0_n_step = 0.0
     expected_D0_n_step = False
     for k in range(n_step_val):
@@ -424,11 +423,11 @@ def test_add_with_episode_done_flushes_cache(state_space_defs, discrete_action_s
     s2, a2, r2, ns2, _ = generate_dummy_experience(state_space_defs, discrete_action_space_defs)
     d2_is_true = [True]
     rb_nstep.add(s2, a2, r2, ns2, d2_is_true)
-    
+
     # Cache flushes:
     # 1. A 2-step transition (s1, a1, r1 + gamma*r2, ns2, d1_false or d2_is_true)
     # 2. A 1-step transition (s2, a2, r2, ns2, d2_is_true)
-    assert rb_nstep.size == 2 
+    assert rb_nstep.size == 2
 
     # Check 1st flushed transition (original s1, a1)
     expected_r1_2step = r1[0] + rb_nstep.gamma * r2[0]

@@ -126,7 +126,7 @@ def test_merge_cli_unknown_args_override(base_cfg_dict):
     
     argv = ["--lr", "0.005"] # lr is explicit
     # Unknown args should take highest precedence
-    unknown_cli = ["--lr", "1e-5", "--gamma", "0.95", "--new_unknown", "true"]
+    unknown_cli = ["--lr", "1.0e-5", "--gamma", "0.95", "--new_unknown", "true"]
     
     merged_ns = merge_cli(base_cfg_dict.copy(), cli_known_args, unknown_cli, argv=argv)
     

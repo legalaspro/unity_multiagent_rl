@@ -12,6 +12,7 @@ class MockMAEnv:
         self.episode_length = episode_length
         self.current_step = 0
         self._fixed_rewards_pattern = fixed_rewards
+        self._episode_count = 0  # Track which episode we're on
 
         if obs_shapes is None:
             obs_shapes = [(4,) for _ in range(num_agents)]
@@ -28,50 +29,58 @@ class MockMAEnv:
         if seed is not None:
             np.random.seed(seed)
         self.current_step = 0
+        # Increment episode count for fixed rewards pattern indexing
+        # Note: We don't increment on the very first reset (episode 0)
         # Returns list of observations, one per agent (as numpy arrays)
         observations = [obs_space.sample() for obs_space in self.observation_space]
         # UnityEnvWrapper's reset often just returns obs. Info is not always passed or used by evaluator's reset call.
-        return observations 
+        return observations
 
     def step(self, actions):
         # actions is expected to be a list or array of actions, one per agent
         if len(actions) != self.num_agents:
             raise ValueError(f"Expected {self.num_agents} actions, got {len(actions)}")
-        
+
         self.current_step += 1
-        
+
         next_observations = [obs_space.sample() for obs_space in self.observation_space] # list of np arrays
-        
+
         if self._fixed_rewards_pattern:
-            rewards_list = self._fixed_rewards_pattern[(self.current_step - 1) % len(self._fixed_rewards_pattern)]
+            # Use episode count to index into rewards pattern, not step within episode
+            rewards_list = self._fixed_rewards_pattern[self._episode_count % len(self._fixed_rewards_pattern)]
             rewards_array = np.array(rewards_list, dtype=np.float32)
         else:
-            if self.num_agents == 2: 
+            if self.num_agents == 2:
                 rand_val = np.random.rand()
-                if rand_val < 0.4: rewards_list = [1.0, -1.0] 
+                if rand_val < 0.4: rewards_list = [1.0, -1.0]
                 elif rand_val < 0.8: rewards_list = [-1.0, 1.0]
                 else: rewards_list = [0.0, 0.0]
                 rewards_array = np.array(rewards_list, dtype=np.float32)
             else:
                 rewards_array = np.array([np.random.rand() for _ in range(self.num_agents)], dtype=np.float32)
-        
+
         global_terminated = self.current_step >= self.episode_length
-        
-        # UnityEnvWrapper step returns: next_obs (list), rewards (np.array), dones (np.array), info (dict with 'all_done')
+
+        # Increment episode count when episode ends
+        if global_terminated:
+            self._episode_count += 1
+
+        # UnityEnvWrapper step returns: next_obs (list), rewards (list), dones (list), truncs (list), info (dict)
         dones_array = np.array([global_terminated for _ in range(self.num_agents)], dtype=bool)
-        info_dict = {"all_done": global_terminated}
+        truncs_array = np.array([False for _ in range(self.num_agents)], dtype=bool)  # Add truncation flags
+        info_dict = {"all_done": global_terminated, "all_trunc": False}
         # Optionally add per-agent info if needed, but evaluator mainly uses 'all_done'
         # for i in range(self.num_agents):
         #     info_dict[f'agent_{i}_final_reward'] = rewards_array[i] if global_terminated else 0.0
 
-        return next_observations, rewards_array, dones_array, info_dict
+        return next_observations, rewards_array, dones_array, truncs_array, info_dict
 
     def close(self):
         # print("MockMAEnv closed.")
         pass # In a real env, this would release resources
 
     @property
-    def n_agents(self): 
+    def n_agents(self):
         return self.num_agents
 
 
@@ -108,14 +117,14 @@ class MockReplayBuffer:
             rewards_li.append(torch.rand(self.batch_size, 1, device=self.device))
             next_states_li.append(torch.randn(self.batch_size, *obs_shape, device=self.device))
             dones_li.append(torch.randint(0, 2, (self.batch_size, 1), device=self.device).float())
-        
-        try: 
+
+        try:
             full_states = torch.cat([s.view(self.batch_size, -1) for s in states_li], dim=1)
             full_next_states = torch.cat([ns.view(self.batch_size, -1) for ns in next_states_li], dim=1)
             full_actions = torch.cat([a.view(self.batch_size, -1) for a in actions_li], dim=1)
-        except: 
+        except:
             full_states, full_next_states, full_actions = torch.tensor([],device=self.device), torch.tensor([],device=self.device), torch.tensor([],device=self.device)
-            
+
         return states_li, actions_li, rewards_li, next_states_li, dones_li, full_states, full_next_states, full_actions
 
     def __len__(self):
@@ -123,13 +132,13 @@ class MockReplayBuffer:
 
 
 class MockEvalAgent:
-    """ 
+    """
     Mock agent/policy for evaluation.
     Its `act` method is designed to be compatible with how `UnityEvaluator` and `CompetitiveEvaluator`
     call `multi_agent.act(obs_tensor_all_agents, deterministic=True)`.
     """
     def __init__(self, agent_id, name, env_action_spaces_list, device='cpu'):
-        self.id = agent_id 
+        self.id = agent_id
         self.name = name
         # env_action_spaces_list: list of gym.space for ALL agents in the environment
         self.env_action_spaces = env_action_spaces_list
@@ -149,11 +158,13 @@ class MockEvalAgent:
             # Evaluator calls torch.as_tensor(np.stack(obs), ...), so input should be tensor.
             # However, if a user calls this mock directly with list of numpy, handle it.
             try:
-                obs_tensor_all_env_agents = torch.tensor(np.array(obs_tensor_all_env_agents), device=self.device, dtype=torch.float32)
+                # Convert to numpy array first to avoid the warning about creating tensor from list of arrays
+                obs_array = np.array(obs_tensor_all_env_agents)
+                obs_tensor_all_env_agents = torch.tensor(obs_array, device=self.device, dtype=torch.float32)
             except Exception as e:
                 raise ValueError(f"MockEvalAgent.act: obs_tensor_all_env_agents could not be converted to tensor. Input type: {type(obs_tensor_all_env_agents)}. Error: {e}")
 
-        
+
         num_total_env_agents = obs_tensor_all_env_agents.shape[0]
         if num_total_env_agents != len(self.env_action_spaces):
             raise ValueError(f"Mismatch: obs tensor has {num_total_env_agents} agents, but agent configured for {len(self.env_action_spaces)} spaces.")
@@ -165,19 +176,19 @@ class MockEvalAgent:
             if isinstance(self.env_action_spaces[i], Discrete) and action_tensor.ndim == 0: # Ensure discrete actions are at least 1D for consistency
                 action_tensor = action_tensor.unsqueeze(0)
             output_actions_list_of_tensors.append(action_tensor)
-            
+
         return output_actions_list_of_tensors
 
-    def get_id(self): 
+    def get_id(self):
         return self.id
 
-    def get_name(self): 
+    def get_name(self):
         return self.name
 
-    @property 
+    @property
     def device(self): # device property expected by evaluator
         return self._device
-    
+
     @device.setter
     def device(self, value):
         self._device = value

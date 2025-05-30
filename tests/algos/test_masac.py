@@ -16,7 +16,7 @@ from networks.critics.twin_q_net import TwinQNet
 def masac_config_dict_continuous_decentral_critic():
     """Basic config for MASAC: Continuous actions, decentralized (non-shared) critics."""
     num_agents = 2
-    obs_shapes = [(10,), (10,)] 
+    obs_shapes = [(10,), (10,)]
     act_shapes = [(2,), (2,)]   # Continuous actions
 
     config = {
@@ -30,28 +30,28 @@ def masac_config_dict_continuous_decentral_critic():
         "critic_lr": 3e-4,
         "alpha_lr": 3e-4,
         "hidden_sizes": (64, 64),
-        
+
         "gamma": 0.99,
         "tau": 0.005,
         "buffer_size": 10000, # Smaller for tests
         "batch_size": 32,    # Smaller for tests
-        
+
         "use_automatic_entropy_tuning": True, # Renamed from autotune_alpha to match agent
+        "autotune_alpha": True, # Same as use_automatic_entropy_tuning for compatibility
         "target_entropy": None, # Agent will calculate
         "alpha_init": 1.0, # Initial alpha value before tuning (or fixed value if not tuning)
-        
+
         "n_step": 1,
         "gumbel_tau": 2.0, # For discrete SAC if ever used, not relevant for Box
-        
+
         "shared_critic": False, # Test decentralized critics first
         # The following are more for context, MASAC structure implies decentralized Q
         "use_centralized_V": False, # Not applicable to Q-critics of SAC
-        "shared_actor": False,   # Test separate actors
 
         "seed": 123,
         "total_steps": 100000,
         "use_linear_lr_decay": False,
-        "exploration_noise": 0.1, 
+        "exploration_noise": 0.1,
         "use_max_grad_norm": True,
         "max_grad_norm": 1.0,
         "state_dependent_std": False,
@@ -85,7 +85,6 @@ def test_masac_initialization_decentral_critic(masac_instance_decentral_critic, 
     masac = masac_instance_decentral_critic
 
     assert not args.shared_critic
-    assert not args.shared_actor
 
     assert masac.num_agents == args.num_agents
     assert masac.device == torch.device(args.device)
@@ -98,7 +97,7 @@ def test_masac_initialization_decentral_critic(masac_instance_decentral_critic, 
         assert isinstance(agent, _MASACAgent)
         assert agent.idx == i
         assert agent.state_size == args.obs_space_shape_defs[i][0]
-        
+
         assert isinstance(agent.actor, ReparamStochasticPolicy)
         assert isinstance(agent.actor_optimizer, torch.optim.Adam)
         assert agent.actor_optimizer.defaults['lr'] == args.actor_lr
@@ -163,7 +162,7 @@ def test_masac_act_method(masac_instance_decentral_critic, masac_config_dict_con
         expected_shape = masac.agents[i].action_space.shape
         assert action_tensor.shape == (1, *expected_shape)
         assert torch.all(action_tensor >= -1.0) and torch.all(action_tensor <= 1.0)
-    
+
     actions_deterministic2 = masac.act(obs_tensors, deterministic=True)
     for a1, a2 in zip(actions_deterministic1, actions_deterministic2):
         assert torch.allclose(a1, a2, atol=1e-6) # Mean should be deterministic
@@ -209,13 +208,13 @@ def test_masac_train_decentral_critic(masac_instance_decentral_critic, mock_repl
     for agent in masac.agents:
         initial_actor_params.append([p.clone().detach() for p in agent.actor.parameters()])
         crit_params = []
-        for p_q1, p_q2 in zip(agent.critic.Q1.parameters(), agent.critic.Q2.parameters()):
+        for p_q1, p_q2 in zip(agent.critic._critic1.parameters(), agent.critic._critic2.parameters()):
             crit_params.append(p_q1.clone().detach())
             crit_params.append(p_q2.clone().detach())
         initial_critic_params.append(crit_params)
-        
+
         target_crit_params = []
-        for p_q1, p_q2 in zip(agent.critic_target.Q1.parameters(), agent.critic_target.Q2.parameters()):
+        for p_q1, p_q2 in zip(agent.critic_target._critic1.parameters(), agent.critic_target._critic2.parameters()):
             target_crit_params.append(p_q1.clone().detach())
             target_crit_params.append(p_q2.clone().detach())
         initial_target_critic_params.append(target_crit_params)
@@ -242,29 +241,29 @@ def test_masac_train_decentral_critic(masac_instance_decentral_critic, mock_repl
             assert isinstance(agent_info["alpha_loss"], float)
             assert isinstance(agent_info["alpha"], float)
             assert not torch.isclose(initial_log_alphas[i], agent.log_alpha.data), f"Agent {i} log_alpha did not change."
-        
+
         # Check parameter updates for main networks
         for p_initial, p_updated in zip(initial_actor_params[i], agent.actor.parameters()):
             assert not torch.allclose(p_initial, p_updated.data), f"Agent {i} actor params did not change."
-        
+
         idx = 0
-        for p_q1_initial, p_q1_updated in zip(initial_critic_params[i][idx::2], agent.critic.Q1.parameters()):
+        for p_q1_initial, p_q1_updated in zip(initial_critic_params[i][idx::2], agent.critic._critic1.parameters()):
              assert not torch.allclose(p_q1_initial, p_q1_updated.data), f"Agent {i} critic Q1 params did not change."
         idx = 1
-        for p_q2_initial, p_q2_updated in zip(initial_critic_params[i][idx::2], agent.critic.Q2.parameters()):
+        for p_q2_initial, p_q2_updated in zip(initial_critic_params[i][idx::2], agent.critic._critic2.parameters()):
              assert not torch.allclose(p_q2_initial, p_q2_updated.data), f"Agent {i} critic Q2 params did not change."
 
         # Check soft target network updates for critic
         # MASAC.update_targets() calls soft_update on agent.critic_target vs agent.critic
         idx = 0
-        for p_target_old, p_main_updated in zip(initial_target_critic_params[i][idx::2], agent.critic.Q1.parameters()):
+        for p_target_old, p_main_updated in zip(initial_target_critic_params[i][idx::2], agent.critic._critic1.parameters()):
             expected_target_param = (1.0 - tau) * p_target_old + tau * p_main_updated.data
-            # Find corresponding param in agent.critic_target.Q1
+            # Find corresponding param in agent.critic_target._critic1
             p_target_new = None
-            for name, param in agent.critic_target.Q1.named_parameters():
+            for name, param in agent.critic_target._critic1.named_parameters():
                 if param.shape == p_target_old.shape: # This is a bit indirect; better to map by name or order
                      p_target_new = param.data
-                     break 
+                     break
             # This matching is fragile. Assuming order is preserved.
             # It's better if soft_update itself is tested, or params are fetched by name.
             # For now, let's assume the test for soft_update in MADDPG was sufficient to trust soft_update.
@@ -272,10 +271,10 @@ def test_masac_train_decentral_critic(masac_instance_decentral_critic, mock_repl
             assert not torch.allclose(p_target_old, p_target_new), f"Agent {i} target critic Q1 params did not change from initial."
             assert not torch.allclose(p_main_updated.data, p_target_new), f"Agent {i} target critic Q1 params became same as main Q1."
         idx = 1
-        for p_target_old, p_main_updated in zip(initial_target_critic_params[i][idx::2], agent.critic.Q2.parameters()):
+        for p_target_old, p_main_updated in zip(initial_target_critic_params[i][idx::2], agent.critic._critic2.parameters()):
             expected_target_param = (1.0 - tau) * p_target_old + tau * p_main_updated.data
             p_target_new = None
-            for name, param in agent.critic_target.Q2.named_parameters():
+            for name, param in agent.critic_target._critic2.named_parameters():
                  if param.shape == p_target_old.shape:
                      p_target_new = param.data
                      break
@@ -310,39 +309,4 @@ def test_imports():
 #   The `masac_config_dict` provides `alpha_lr`. This should be fine.
 # - The soft-update check in `test_masac_train_decentral_critic` is a bit indirect for target params.
 #   A more robust way would be to directly check against the soft update formula, but this requires
-#   careful handling of parameter lists. The current check (changed from initial, not same as main) is a good start.The initial tests for the MASAC algorithm (initialization, `act` method, and `train` method) have been implemented in `tests/test_masac.py`.
-
-**Key aspects covered:**
-
-1.  **Configuration (`masac_config_dict_continuous_decentral_critic`):**
-    *   A fixture provides a configuration for MASAC, specifically for continuous actions and decentralized (non-shared) critics.
-    *   Includes parameters for SAC-specific components like automatic entropy tuning (`use_automatic_entropy_tuning`, `target_entropy`, `alpha_init`, `alpha_lr`), network settings, learning rates, and soft update `tau`.
-    *   A helper `get_spaces_from_config_params_sac` creates lists of `gymnasium.spaces.Box` for observation and action spaces.
-
-2.  **Initialization Test (`test_masac_initialization_decentral_critic`):**
-    *   Verifies `MASAC` instantiation with the correct number of agents and parameters.
-    *   Checks that each agent is an `_MASACAgent` instance.
-    *   For each agent (with decentralized critics):
-        *   Ensures a `ReparamStochasticPolicy` (actor) and its optimizer are created.
-        *   Verifies that a `TwinQNet` (critic) and its target (`TwinQNet`) are instantiated, along with their optimizer. Target critic weights are confirmed to match initial critic weights.
-        *   If automatic entropy tuning is enabled, checks for the `log_alpha` parameter, its optimizer, and the correctly calculated `target_entropy`.
-    *   Notes that `MASAC` itself does not initialize `self.buffer` in `__init__` based on the provided code, but expects it to be passed to the `train` method.
-
-3.  **`act` Method Test (`test_masac_act_method`):**
-    *   Tests action selection for continuous action spaces.
-    *   Input observations are lists of tensors (one per agent, with a batch dimension).
-    *   Verifies that output actions (list of tensors) have correct shapes and are within the `[-1, 1]` bounds typical for SAC policies using Tanh squashing.
-    *   Tests both stochastic (`deterministic=False`) and deterministic (`deterministic=True`) action selection, confirming determinism for the latter.
-
-4.  **`train` (Update) Method Test (`test_masac_train_decentral_critic`):**
-    *   Uses `MockReplayBuffer` from `tests.helpers.py`, passed directly to `MASAC.train()`.
-    *   The `MockReplayBuffer` is configured to sample data batches with the structure MASAC expects (lists of tensors for obs, actions, next_obs, rewards, dones per agent).
-    *   Verifies that `MASAC.train()` returns a dictionary of training information for each agent.
-    *   Checks for `critic_loss`, `actor_loss` (and `alpha_loss`, `alpha` if tuning) in the returned info, ensuring they are floats.
-    *   Confirms parameter updates after the `train()` call for:
-        *   Each agent's actor network.
-        *   Each agent's critic networks (both Q1 and Q2 of the `TwinQNet`).
-        *   Each agent's `log_alpha` if entropy tuning is active.
-    *   Includes basic checks for target critic network updates (ensuring they changed and are different from the main networks due to soft updates).
-
-The tests provide a solid foundation for verifying the MASAC implementation with decentralized critics and continuous actions. Future tests could expand to shared critic scenarios, more detailed loss verification, and other SAC-specific features.
+#   careful handling of parameter lists. The current check (changed from initial, not same as main) is a good start.

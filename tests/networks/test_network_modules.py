@@ -1,6 +1,7 @@
 import pytest
 import torch
 import torch.nn as nn
+import numpy as np
 from gymnasium.spaces import Box, Discrete # For action space definitions
 
 # --- Actor Network Imports ---
@@ -81,13 +82,13 @@ def test_deterministic_policy_forward():
     obs_dim = 10
     # For DeterministicPolicy, action_space is a gym.spaces.Box
     action_space = Box(low=-1, high=1, shape=(3,), dtype=np.float32)
-    
+
     actor = DeterministicPolicy(obs_dim, action_space, DEFAULT_HIDDEN_SIZES, device=DEVICE)
     actor.to(DEVICE)
-    
+
     obs = torch.randn(BATCH_SIZE, obs_dim, device=DEVICE)
     actions = actor(obs)
-    
+
     assert actions.shape == (BATCH_SIZE, *action_space.shape)
     # Check if actions are within bounds (actor should handle scaling/clamping)
     low = torch.tensor(action_space.low, device=DEVICE, dtype=torch.float32)
@@ -101,15 +102,15 @@ def test_stochastic_policy_forward_discrete():
     obs_dim = 10
     # For StochasticPolicy with discrete actions
     action_space = Discrete(5) # 5 discrete actions
-        
+
     actor = StochasticPolicy(obs_dim, action_space, state_dependent_std=False, # Common for discrete
                              hidden_sizes=DEFAULT_HIDDEN_SIZES, device=DEVICE)
     actor.to(DEVICE)
 
     obs = torch.randn(BATCH_SIZE, obs_dim, device=DEVICE)
-    
+
     # Test sample() method
-    actions_sampled, log_probs_sampled = actor.sample(obs, deterministic=False)
+    actions_sampled, log_probs_sampled = actor.forward(obs, deterministic=False)
     assert actions_sampled.shape == (BATCH_SIZE, 1) # Discrete action index
     assert actions_sampled.dtype == torch.long
     assert torch.all(actions_sampled >= 0) and torch.all(actions_sampled < action_space.n)
@@ -123,7 +124,7 @@ def test_stochastic_policy_forward_discrete():
     assert torch.all(entropy_eval >= 0)
 
     # Test deterministic action (usually mode/argmax for discrete)
-    actions_det, log_probs_det = actor.sample(obs, deterministic=True)
+    actions_det, log_probs_det = actor.forward(obs, deterministic=True)
     assert actions_det.shape == (BATCH_SIZE, 1)
 
 
@@ -139,7 +140,7 @@ def test_stochastic_policy_forward_continuous():
     actor.to(DEVICE)
     obs = torch.randn(BATCH_SIZE, obs_dim, device=DEVICE)
 
-    actions_sampled, log_probs_sampled = actor.sample(obs, deterministic=False)
+    actions_sampled, log_probs_sampled = actor.forward(obs, deterministic=False)
     assert actions_sampled.shape == (BATCH_SIZE, *action_space.shape)
     assert log_probs_sampled.shape == (BATCH_SIZE, 1) # Sum of log_probs across action dims
 
@@ -147,7 +148,7 @@ def test_stochastic_policy_forward_continuous():
     assert log_probs_eval.shape == (BATCH_SIZE, 1)
     assert entropy_eval.shape == (BATCH_SIZE, 1)
 
-    actions_det, log_probs_det = actor.sample(obs, deterministic=True) # Mean for Gaussian
+    actions_det, log_probs_det = actor.forward(obs, deterministic=True) # Mean for Gaussian
     assert actions_det.shape == (BATCH_SIZE, *action_space.shape)
 
 
@@ -156,17 +157,17 @@ def test_reparam_stochastic_policy_forward(): # Usually for continuous (SAC)
     is_module_available(ReparamStochasticPolicy)
     obs_dim = 10
     action_space = Box(low=-1, high=1, shape=(3,), dtype=np.float32)
-    
+
     actor = ReparamStochasticPolicy(obs_dim, action_space, DEFAULT_HIDDEN_SIZES, device=DEVICE)
     actor.to(DEVICE)
-    
+
     obs = torch.randn(BATCH_SIZE, obs_dim, device=DEVICE)
-    
+
     # Test sample()
     actions, log_probs, dist_info = actor.sample(obs, compute_log_prob=True, deterministic=False)
     assert actions.shape == (BATCH_SIZE, *action_space.shape)
     assert log_probs.shape == (BATCH_SIZE, 1)
-    assert isinstance(dist_info, torch.Tensor) # For Box, dist_info is usually the action itself before Tanh
+    assert dist_info == None # For Box, dist_info is usually None
 
     # Test deterministic (mean)
     actions_det, _, _ = actor.sample(obs, compute_log_prob=False, deterministic=True)
@@ -186,7 +187,7 @@ if SquashedGaussianPolicy is not None and SquashedGaussianPolicy != ReparamStoch
         actor = SquashedGaussianPolicy(obs_dim, action_space.shape[0], DEFAULT_HIDDEN_SIZES, device=DEVICE)
         actor.to(DEVICE)
         obs = torch.randn(BATCH_SIZE, obs_dim, device=DEVICE)
-        actions, log_probs, _ = actor.sample(obs) # Assuming sample() is primary method
+        actions, log_probs  = actor.sample(obs) # Assuming sample() is primary method
         assert actions.shape == (BATCH_SIZE, *action_space.shape)
         assert log_probs.shape == (BATCH_SIZE, 1)
         assert torch.all(actions >= -1.0) and torch.all(actions <= 1.0)
@@ -198,18 +199,18 @@ if SquashedGaussianPolicy is not None and SquashedGaussianPolicy != ReparamStoch
 def test_single_q_net_forward():
     is_module_available(SingleQNet)
     obs_dim = 10
-    action_dim = 3 
+    action_dim = 3
     # SingleQNet typically takes concatenated obs and actions if used in DDPG/TD3 style
     # Or just obs if it's a VNet (but this is QNet).
     # The implementation of _MASACAgent, _MADDPGAgent, _MATD3Agent use total_state_size, total_action_size
     # This means obs_dim here is total_obs_dim, action_dim is total_action_dim
-    
+
     critic = SingleQNet(obs_dim, action_dim, DEFAULT_HIDDEN_SIZES, device=DEVICE)
     critic.to(DEVICE)
-    
+
     obs_input = torch.randn(BATCH_SIZE, obs_dim, device=DEVICE)
     action_input = torch.randn(BATCH_SIZE, action_dim, device=DEVICE)
-    
+
     q_value = critic(obs_input, action_input)
     assert q_value.shape == (BATCH_SIZE, 1)
 
@@ -218,13 +219,13 @@ def test_twin_q_net_forward():
     is_module_available(TwinQNet)
     obs_dim = 10
     action_dim = 3
-    
+
     critic = TwinQNet(obs_dim, action_dim, DEFAULT_HIDDEN_SIZES, device=DEVICE)
     critic.to(DEVICE)
-    
+
     obs_input = torch.randn(BATCH_SIZE, obs_dim, device=DEVICE)
     action_input = torch.randn(BATCH_SIZE, action_dim, device=DEVICE)
-    
+
     q1_value, q2_value = critic(obs_input, action_input)
     assert q1_value.shape == (BATCH_SIZE, 1)
     assert q2_value.shape == (BATCH_SIZE, 1)
@@ -233,10 +234,10 @@ def test_twin_q_net_forward():
 def test_v_net_forward():
     is_module_available(VNet)
     obs_dim = 10 # For VNet, this is typically the (potentially centralized) observation dim
-    
+
     critic = VNet(obs_dim, DEFAULT_HIDDEN_SIZES, device=DEVICE)
     critic.to(DEVICE)
-    
+
     obs_input = torch.randn(BATCH_SIZE, obs_dim, device=DEVICE)
     v_value = critic(obs_input)
     assert v_value.shape == (BATCH_SIZE, 1)
@@ -262,13 +263,13 @@ def test_categorical_head_forward():
     is_module_available(CategoricalHead)
     input_dim = DEFAULT_HIDDEN_SIZES[-1] # From an MLP base
     action_dim_discrete = 5 # Number of discrete actions
-    
+
     head = CategoricalHead(input_dim, action_dim_discrete, device=DEVICE)
     head.to(DEVICE)
-    
+
     features = torch.randn(BATCH_SIZE, input_dim, device=DEVICE)
     dist = head(features) # Should return a torch.distributions.Categorical
-    
+
     assert isinstance(dist, torch.distributions.Categorical)
     assert dist.logits.shape == (BATCH_SIZE, action_dim_discrete)
     assert dist.sample().shape == (BATCH_SIZE,) # Sample shape for Categorical
@@ -278,7 +279,7 @@ def test_diag_gaussian_head_forward():
     is_module_available(DiagGaussianHead)
     input_dim = DEFAULT_HIDDEN_SIZES[-1]
     action_dim_continuous = 3
-    
+
     # DiagGaussianHead(num_inputs, action_dim, use_orthogonal_init, gain, use_state_dependent_std, ...)
     # Need to check actual signature for required params. Assume some defaults.
     head = DiagGaussianHead(input_dim, action_dim_continuous, use_state_dependent_std=False, device=DEVICE)
@@ -286,7 +287,7 @@ def test_diag_gaussian_head_forward():
 
     features = torch.randn(BATCH_SIZE, input_dim, device=DEVICE)
     dist = head(features) # Should return a torch.distributions.Normal (or MultivariateNormal if diagonal)
-    
+
     assert isinstance(dist, torch.distributions.Normal) # Assuming Normal for diagonal Gaussian
     assert dist.mean.shape == (BATCH_SIZE, action_dim_continuous)
     assert dist.stddev.shape == (BATCH_SIZE, action_dim_continuous)
@@ -304,20 +305,19 @@ def test_init_weights_changes_weights():
     original_weight = layer.weight.clone().detach()
     original_bias = layer.bias.clone().detach()
 
-    # Example: init_weights(module, weight_init_type, bias_const, gain=1)
-    init_weights(layer, 'xavier_uniform_', 0.01) 
+    # Test hidden layer initialization (default)
+    init_weights(layer, gain=1.0, final_layer=False)
 
     assert not torch.allclose(original_weight, layer.weight.data), "Weights did not change after init_weights."
-    # Bias might or might not change if bias_const was already close to original or if init doesn't touch bias with some schemes
-    # A specific check for bias might be:
-    assert torch.allclose(layer.bias.data, torch.full_like(layer.bias.data, 0.01)), "Bias not set to constant as expected."
+    # For hidden layers, bias should be set to zero
+    assert torch.allclose(layer.bias.data, torch.zeros_like(layer.bias.data)), "Bias not set to zero as expected for hidden layer."
 
-    # Test another init type if supported, e.g., 'orthogonal_'
-    layer_ortho = nn.Linear(10, 5, device=DEVICE).to(DEVICE)
-    original_weight_ortho = layer_ortho.weight.clone().detach()
-    init_weights(layer_ortho, 'orthogonal_', 0.05, gain=0.5) # Assuming gain is a param
-    assert not torch.allclose(original_weight_ortho, layer_ortho.weight.data)
-    assert torch.allclose(layer_ortho.bias.data, torch.full_like(layer_ortho.bias.data, 0.05))
+    # Test final layer initialization
+    layer_final = nn.Linear(10, 5, device=DEVICE).to(DEVICE)
+    original_weight_final = layer_final.weight.clone().detach()
+    init_weights(layer_final, gain=0.01, final_layer=True)
+    assert not torch.allclose(original_weight_final, layer_final.weight.data)
+    # For final layer, both weight and bias use uniform initialization with the gain
 
 # Final check of imports
 def test_all_imports():

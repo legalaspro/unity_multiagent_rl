@@ -33,17 +33,19 @@ def test_elo_expected_score():
     r_a2, r_b2 = 1200, 1000
     e_a2 = elo_system.expected_score(r_a2, r_b2)
     # E_A = 1 / (1 + 10^((1000 - 1200) / 400)) = 1 / (1 + 10^(-200/400)) = 1 / (1 + 10^(-0.5))
-    # 10^(-0.5) = 1 / sqrt(10) ~= 1 / 3.162277 = 0.3162277
-    # E_A ~= 1 / (1 + 0.3162277) = 1 / 1.3162277 ~= 0.75973
-    assert math.isclose(e_a2, 0.75973, abs_tol=1e-5), f"Expected ~0.75973 for 1200 vs 1000, got {e_a2}"
+    # 10^(-0.5) = 1 / sqrt(10) ≈ 0.31622776601683794
+    # E_A = 1 / (1 + 0.31622776601683794) ≈ 0.7597469266479578
+    expected_e_a2 = 1.0 / (1.0 + math.pow(10, (r_b2 - r_a2) / 400.0))
+    assert math.isclose(e_a2, expected_e_a2, abs_tol=1e-10), f"Expected {expected_e_a2} for 1200 vs 1000, got {e_a2}"
 
     # Case 3: Player A lower rated
     r_a3, r_b3 = 1000, 1200
     e_a3 = elo_system.expected_score(r_a3, r_b3)
     # E_A = 1 / (1 + 10^((1200 - 1000) / 400)) = 1 / (1 + 10^(200/400)) = 1 / (1 + 10^(0.5))
-    # 10^(0.5) = sqrt(10) ~= 3.162277
-    # E_A ~= 1 / (1 + 3.162277) = 1 / 4.162277 ~= 0.24027
-    assert math.isclose(e_a3, 0.24027, abs_tol=1e-5), f"Expected ~0.24027 for 1000 vs 1200, got {e_a3}"
+    # 10^(0.5) = sqrt(10) ≈ 3.1622776601683795
+    # E_A = 1 / (1 + 3.1622776601683795) ≈ 0.24025307334520423
+    expected_e_a3 = 1.0 / (1.0 + math.pow(10, (r_b3 - r_a3) / 400.0))
+    assert math.isclose(e_a3, expected_e_a3, abs_tol=1e-10), f"Expected {expected_e_a3} for 1000 vs 1200, got {e_a3}"
 
 def test_elo_update_ratings_logic():
     """Test the core update_ratings logic with various scenarios."""
@@ -54,11 +56,11 @@ def test_elo_update_ratings_logic():
     r_a, r_b = 1200, 1000
     e_a = elo_system.expected_score(r_a, r_b) # ~0.75973
     e_b = 1 - e_a # ~0.24027
-    
+
     new_r_a1, new_r_b1 = elo_system.update_ratings(r_a, r_b, score_a=1.0)
     expected_change_a1 = k_factor * (1.0 - e_a)
     expected_change_b1 = k_factor * (0.0 - e_b) # (1.0 - score_a) is 0 for Player B
-    
+
     assert math.isclose(new_r_a1, r_a + expected_change_a1)
     assert math.isclose(new_r_b1, r_b + expected_change_b1)
     assert new_r_a1 > r_a
@@ -73,7 +75,7 @@ def test_elo_update_ratings_logic():
     new_r_a2, new_r_b2 = elo_system.update_ratings(r_a, r_b, score_a=0.0)
     expected_change_a2 = k_factor * (0.0 - e_a)
     expected_change_b2 = k_factor * (1.0 - e_b) # (1.0 - score_a) is 1 for Player B
-    
+
     assert math.isclose(new_r_a2, r_a + expected_change_a2)
     assert math.isclose(new_r_b2, r_b + expected_change_b2)
     assert new_r_a2 < r_a
@@ -83,7 +85,7 @@ def test_elo_update_ratings_logic():
     # Scenario 3: Players with equal ratings (1200 vs 1200) draw. S_A = 0.5
     r_a_eq, r_b_eq = 1200, 1200
     e_a_eq = elo_system.expected_score(r_a_eq, r_b_eq) # 0.5
-    
+
     new_r_a3, new_r_b3 = elo_system.update_ratings(r_a_eq, r_b_eq, score_a=0.5)
     assert math.isclose(new_r_a3, r_a_eq) # No change
     assert math.isclose(new_r_b3, r_b_eq) # No change
@@ -92,7 +94,7 @@ def test_elo_update_ratings_logic():
     r_a, r_b = 1200, 1000
     e_a = elo_system.expected_score(r_a, r_b) # ~0.75973
     e_b = 1 - e_a # ~0.24027
-    
+
     new_r_a4, new_r_b4 = elo_system.update_ratings(r_a, r_b, score_a=0.5)
     expected_change_a4 = k_factor * (0.5 - e_a) # Negative change for A
     expected_change_b4 = k_factor * (0.5 - e_b) # Positive change for B (0.5 - score_a_for_b = 0.5 - 0.5 = 0, this is wrong)

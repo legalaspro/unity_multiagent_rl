@@ -14,7 +14,7 @@ def unity_eval_config_dict(tmp_path):
     """Basic configuration dictionary for UnityEvaluator tests."""
     env_num_agents = 2
     config = {
-        "eval_episodes": 3, # Keep low for tests
+        "eval_episodes": 5, # Keep low for tests
         "log_dir": str(tmp_path), # Not directly used by class if logger is perfectly mocked
         "seed": 42,
         "worker_id": 1,
@@ -38,7 +38,7 @@ def mock_ma_env_for_unity_eval(unity_eval_config_dict):
     num_env_agents = sum(len(team) for team in cfg.teams)
     obs_shapes = [(4,)] * num_env_agents
     action_spaces = [Box(low=-1, high=1, shape=(2,), dtype=np.float32) for _ in range(num_env_agents)]
-    
+
     env = MockMAEnv(
         num_agents=num_env_agents,
         obs_shapes=obs_shapes,
@@ -65,10 +65,10 @@ def make_mock_agent_snapshot_fn(mock_ma_env_for_unity_eval, unity_eval_config_di
 # --- Initialization Tests ---
 def test_unity_evaluator_initialization(mock_logger, unity_eval_config_dict, make_mock_agent_snapshot_fn, mocker, mock_ma_env_for_unity_eval):
     cfg = Namespace(**unity_eval_config_dict)
-    
+
     # Patch UnityEnvWrapper to return our MockMAEnv instance
     mock_env_patch = mocker.patch('evals.unity_evaluator.UnityEnvWrapper', return_value=mock_ma_env_for_unity_eval)
-    
+
     snapshot_fn = make_mock_agent_snapshot_fn # Get the actual function
 
     evaluator = UnityEvaluator(logger=mock_logger, cfg=cfg, make_agent_snapshot=snapshot_fn)
@@ -86,7 +86,7 @@ def test_unity_evaluator_initialization(mock_logger, unity_eval_config_dict, mak
 def test_unity_evaluator_run(mock_logger, unity_eval_config_dict, make_mock_agent_snapshot_fn, mocker, mock_ma_env_for_unity_eval):
     cfg_dict = unity_eval_config_dict
     cfg = Namespace(**cfg_dict)
-    
+
     # Configure MockMAEnv for predictable results
     # Episode 1: Team0 wins (agent 0 gets 10, agent 1 gets 5). Total for T0=10, T1=5. Length 2
     # Episode 2: Team1 wins (agent 0 gets 2, agent 1 gets 8). Total for T0=2, T1=8. Length 3
@@ -107,9 +107,9 @@ def test_unity_evaluator_run(mock_logger, unity_eval_config_dict, make_mock_agen
     # For `play_one_episode`, the episode runs until `info["all_done"]` is true.
     # `MockMAEnv` sets `all_done` based on `self.current_step >= self.episode_length`.
     # So, we need to control episode lengths carefully.
-    
+
     # Let's simplify: make each episode 1 step long, and rewards are final.
-    mock_ma_env_for_unity_eval.episode_length = 1 
+    mock_ma_env_for_unity_eval.episode_length = 1
     # Rewards for 3 episodes:
     fixed_rewards_per_episode = [
         np.array([10.0, 5.0], dtype=np.float32), # Ep1: Agent0 (Team0) wins
@@ -121,11 +121,15 @@ def test_unity_evaluator_run(mock_logger, unity_eval_config_dict, make_mock_agen
     fixed_rewards_per_episode.append(np.array([4.0, 9.0], dtype=np.float32)) # Ep5: Agent1 (Team1) wins
     mock_ma_env_for_unity_eval._fixed_rewards_pattern = fixed_rewards_per_episode # Set the fixed rewards
 
+    # Mock the reset and step methods to track calls
+    mock_ma_env_for_unity_eval.reset = mocker.MagicMock(side_effect=mock_ma_env_for_unity_eval.reset)
+    mock_ma_env_for_unity_eval.step = mocker.MagicMock(side_effect=mock_ma_env_for_unity_eval.step)
+
     mock_env_patch = mocker.patch('evals.unity_evaluator.UnityEnvWrapper', return_value=mock_ma_env_for_unity_eval)
     snapshot_fn = make_mock_agent_snapshot_fn # This returns a MockEvalAgent
 
     evaluator = UnityEvaluator(logger=mock_logger, cfg=cfg, make_agent_snapshot=snapshot_fn)
-    
+
     global_step_val = 123
     mean_max_agent_return_overall = evaluator.run(global_step=global_step_val)
 
@@ -137,7 +141,7 @@ def test_unity_evaluator_run(mock_logger, unity_eval_config_dict, make_mock_agen
 
     # --- Verify environment interactions ---
     # Env should be reset `cfg.eval_episodes` times
-    assert mock_ma_env_for_unity_eval.reset.call_count == cfg.eval_episodes 
+    assert mock_ma_env_for_unity_eval.reset.call_count == cfg.eval_episodes
     # Env step called sum of episode lengths. Here, each episode is 1 step.
     assert mock_ma_env_for_unity_eval.step.call_count == cfg.eval_episodes * mock_ma_env_for_unity_eval.episode_length
 
@@ -146,28 +150,74 @@ def test_unity_evaluator_run(mock_logger, unity_eval_config_dict, make_mock_agen
     # Mean agent returns:
     # Agent0: (10+2+6+7+4)/5 = 29/5 = 5.8
     # Agent1: (5+8+6+3+9)/5 = 31/5 = 6.2
-    mock_logger.add_scalar.assert_any_call("eval/agent0_mean_return", 5.8, global_step_val)
-    mock_logger.add_scalar.assert_any_call("eval/agent1_mean_return", 6.2, global_step_val)
+
+    # Check if the calls were made with approximately correct values
+    calls = mock_logger.add_scalar.call_args_list
+    agent0_call_found = any(
+        call[0][0] == "eval/agent0_mean_return" and
+        call[0][1] == pytest.approx(5.8, abs=1e-6) and
+        call[0][2] == global_step_val
+        for call in calls
+    )
+    agent1_call_found = any(
+        call[0][0] == "eval/agent1_mean_return" and
+        call[0][1] == pytest.approx(6.2, abs=1e-6) and
+        call[0][2] == global_step_val
+        for call in calls
+    )
+
+    assert agent0_call_found, f"Expected call for agent0_mean_return with value ~5.8 not found. Calls: {calls}"
+    assert agent1_call_found, f"Expected call for agent1_mean_return with value ~6.2 not found. Calls: {calls}"
 
     # Max agent per ep: Ep1:10, Ep2:8, Ep3:6, Ep4:7, Ep5:9
     # Mean max_agent_ret: (10+8+6+7+9)/5 = 40/5 = 8.0
-    mock_logger.add_scalar.assert_any_call("eval/agent_mean_max_return", 8.0, global_step_val)
-    assert mean_max_agent_return_overall == 8.0 # Check return value of run()
+    max_agent_call_found = any(
+        call[0][0] == "eval/agent_mean_max_return" and
+        call[0][1] == pytest.approx(8.0, abs=1e-6) and
+        call[0][2] == global_step_val
+        for call in calls
+    )
+    assert max_agent_call_found, f"Expected call for agent_mean_max_return with value ~8.0 not found. Calls: {calls}"
+    assert mean_max_agent_return_overall == pytest.approx(8.0, abs=1e-6) # Check return value of run()
 
     # Team returns (teams = [[0], [1]])
     # Team0 returns: Ep1:10, Ep2:2, Ep3:6, Ep4:7, Ep5:4
     # Team1 returns: Ep1:5, Ep2:8, Ep3:6, Ep4:3, Ep5:9
     # Mean Team0: 5.8
     # Mean Team1: 6.2
-    mock_logger.add_scalar.assert_any_call("eval/team0_mean_return", 5.8, global_step_val)
-    mock_logger.add_scalar.assert_any_call("eval/team1_mean_return", 6.2, global_step_val)
+    team0_call_found = any(
+        call[0][0] == "eval/team0_mean_return" and
+        call[0][1] == pytest.approx(5.8, abs=1e-6) and
+        call[0][2] == global_step_val
+        for call in calls
+    )
+    team1_call_found = any(
+        call[0][0] == "eval/team1_mean_return" and
+        call[0][1] == pytest.approx(6.2, abs=1e-6) and
+        call[0][2] == global_step_val
+        for call in calls
+    )
+    assert team0_call_found, f"Expected call for team0_mean_return with value ~5.8 not found. Calls: {calls}"
+    assert team1_call_found, f"Expected call for team1_mean_return with value ~6.2 not found. Calls: {calls}"
 
     # Max team per ep: Ep1:10, Ep2:8, Ep3:6, Ep4:7, Ep5:9
     # Mean max_team_ret: (10+8+6+7+9)/5 = 8.0
-    mock_logger.add_scalar.assert_any_call("eval/team_mean_max_return", 8.0, global_step_val)
-    
+    max_team_call_found = any(
+        call[0][0] == "eval/team_mean_max_return" and
+        call[0][1] == pytest.approx(8.0, abs=1e-6) and
+        call[0][2] == global_step_val
+        for call in calls
+    )
+    assert max_team_call_found, f"Expected call for team_mean_max_return with value ~8.0 not found. Calls: {calls}"
+
     # Mean episode length (all are 1 step)
-    mock_logger.add_scalar.assert_any_call("eval/mean_episode_length", 1.0, global_step_val)
+    length_call_found = any(
+        call[0][0] == "eval/mean_episode_length" and
+        call[0][1] == pytest.approx(1.0, abs=1e-6) and
+        call[0][2] == global_step_val
+        for call in calls
+    )
+    assert length_call_found, f"Expected call for mean_episode_length with value ~1.0 not found. Calls: {calls}"
 
 
 # --- Close Method Test ---
@@ -177,10 +227,10 @@ def test_unity_evaluator_close(mock_logger, unity_eval_config_dict, make_mock_ag
     snapshot_fn = make_mock_agent_snapshot_fn
 
     evaluator = UnityEvaluator(logger=mock_logger, cfg=cfg, make_agent_snapshot=snapshot_fn)
-    
+
     # Add a close mock to the MockMAEnv instance if it doesn't have one, or ensure it does
     mock_ma_env_for_unity_eval.close = mocker.MagicMock()
-    
+
     evaluator.close()
     mock_ma_env_for_unity_eval.close.assert_called_once()
 
@@ -207,31 +257,31 @@ def test_imports_unity_evaluator():
 # `MockMAEnv.step` now takes `actions` (list of numpy) which is consistent with `UnityEvaluator`'s processing.
 # `MockEvalAgent` constructor now correctly takes `env_action_spaces_list`.The tests for `UnityEvaluator` have been implemented in `tests/test_unity_evaluator.py`.
 
-**Key aspects covered:**
+# **Key aspects covered:**
 
-1.  **Configuration and Mocking Setup:**
-    *   A `unity_eval_config_dict` fixture provides configurations like `eval_episodes`, `teams`, and parameters needed for mocking `UnityEnvWrapper` (`env_id`, `worker_id`, `seed`).
-    *   A `mock_logger` fixture provides a `MagicMock` for verifying logging calls.
-    *   A `mock_ma_env_for_unity_eval` fixture creates a `MockMAEnv` instance, configured with observation and action spaces suitable for the number of agents defined by the `teams` structure in the config.
-    *   A `make_mock_agent_snapshot_fn` factory fixture creates a `make_agent_snapshot` function. This function, when called, returns a `MockEvalAgent` instance. The `MockEvalAgent` is initialized with the environment's full list of action spaces and a device, and its `num_agents` attribute is set. Its `act` method is designed to take a tensor of observations for all agents and return a list of action tensors.
-    *   `evals.unity_evaluator.UnityEnvWrapper` is consistently patched using `mocker.patch` to return the `mock_ma_env_for_unity_eval` instance, preventing real Unity environment initialization.
+# 1.  **Configuration and Mocking Setup:**
+#     *   A `unity_eval_config_dict` fixture provides configurations like `eval_episodes`, `teams`, and parameters needed for mocking `UnityEnvWrapper` (`env_id`, `worker_id`, `seed`).
+#     *   A `mock_logger` fixture provides a `MagicMock` for verifying logging calls.
+#     *   A `mock_ma_env_for_unity_eval` fixture creates a `MockMAEnv` instance, configured with observation and action spaces suitable for the number of agents defined by the `teams` structure in the config.
+#     *   A `make_mock_agent_snapshot_fn` factory fixture creates a `make_agent_snapshot` function. This function, when called, returns a `MockEvalAgent` instance. The `MockEvalAgent` is initialized with the environment's full list of action spaces and a device, and its `num_agents` attribute is set. Its `act` method is designed to take a tensor of observations for all agents and return a list of action tensors.
+#     *   `evals.unity_evaluator.UnityEnvWrapper` is consistently patched using `mocker.patch` to return the `mock_ma_env_for_unity_eval` instance, preventing real Unity environment initialization.
 
-2.  **Initialization Test (`test_unity_evaluator_initialization`):**
-    *   Verifies that `UnityEvaluator` correctly stores its dependencies (mocked logger, config, snapshot function).
-    *   Ensures that the `UnityEnvWrapper` is patched and the evaluator uses the provided mock environment.
-    *   Checks that `team_indices` and `eval_episodes` are correctly set from the config.
+# 2.  **Initialization Test (`test_unity_evaluator_initialization`):**
+#     *   Verifies that `UnityEvaluator` correctly stores its dependencies (mocked logger, config, snapshot function).
+#     *   Ensures that the `UnityEnvWrapper` is patched and the evaluator uses the provided mock environment.
+#     *   Checks that `team_indices` and `eval_episodes` are correctly set from the config.
 
-3.  **`run` Method Test (`test_unity_evaluator_run`):**
-    *   This is the main integration test for the evaluation logic.
-    *   The `MockMAEnv` is configured with a `fixed_rewards_pattern` and a fixed `episode_length` of 1 step per episode to make outcomes and episode lengths predictable across the `cfg.eval_episodes`.
-    *   `evaluator.run(global_step)` is called.
-    *   **Verification:**
-        *   `make_agent_snapshot` is called (implicitly, by checking the agent is used).
-        *   Environment interactions: `mock_ma_env.reset` is called once per evaluation episode. `mock_ma_env.step` is called for the total number of steps across all episodes.
-        *   Logged metrics: `mock_logger.add_scalar` calls are checked for all expected metrics (`eval/agent{i}_mean_return`, `eval/agent_mean_max_return`, `eval/team{t}_mean_return`, `eval/team_mean_max_return`, `eval/mean_episode_length`). The values of these metrics are calculated based on the predictable rewards from `MockMAEnv` and asserted.
-        *   The return value of `evaluator.run()` (which is `mean_max_agent_ret`) is also verified.
+# 3.  **`run` Method Test (`test_unity_evaluator_run`):**
+#     *   This is the main integration test for the evaluation logic.
+#     *   The `MockMAEnv` is configured with a `fixed_rewards_pattern` and a fixed `episode_length` of 1 step per episode to make outcomes and episode lengths predictable across the `cfg.eval_episodes`.
+#     *   `evaluator.run(global_step)` is called.
+#     *   **Verification:**
+#         *   `make_agent_snapshot` is called (implicitly, by checking the agent is used).
+#         *   Environment interactions: `mock_ma_env.reset` is called once per evaluation episode. `mock_ma_env.step` is called for the total number of steps across all episodes.
+#         *   Logged metrics: `mock_logger.add_scalar` calls are checked for all expected metrics (`eval/agent{i}_mean_return`, `eval/agent_mean_max_return`, `eval/team{t}_mean_return`, `eval/team_mean_max_return`, `eval/mean_episode_length`). The values of these metrics are calculated based on the predictable rewards from `MockMAEnv` and asserted.
+#         *   The return value of `evaluator.run()` (which is `mean_max_agent_ret`) is also verified.
 
-4.  **`close` Method Test (`test_unity_evaluator_close`):**
-    *   Verifies that calling `evaluator.close()` results in a call to the `close()` method of the (mocked) environment instance.
+# 4.  **`close` Method Test (`test_unity_evaluator_close`):**
+#     *   Verifies that calling `evaluator.close()` results in a call to the `close()` method of the (mocked) environment instance.
 
-The tests cover the primary functionalities of `UnityEvaluator`, focusing on its interaction with the environment, agent snapshots, and the logging of computed metrics. The mocking strategy ensures that the tests are self-contained and do not require a live Unity environment. Helper classes `MockMAEnv` and `MockEvalAgent` were refined in a previous step to align with the specific interface expectations of `UnityEvaluator`.
+# The tests cover the primary functionalities of `UnityEvaluator`, focusing on its interaction with the environment, agent snapshots, and the logging of computed metrics. The mocking strategy ensures that the tests are self-contained and do not require a live Unity environment. Helper classes `MockMAEnv` and `MockEvalAgent` were refined in a previous step to align with the specific interface expectations of `UnityEvaluator`.
